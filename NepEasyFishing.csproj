@@ -7,6 +7,7 @@
     <Version>1.0.0</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
+    <UserSecretsId>26374c55-e306-41f1-a804-b4a7dc14b40f</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
