@@ -3,7 +3,10 @@ using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 using System;
+using System.Reflection;
 using UnityEngine;
+using UnityEngine.UI;
+using static UnityEngine.GraphicsBuffer;
 
 
 namespace NepEasyFishing
@@ -15,21 +18,22 @@ namespace NepEasyFishing
 
         internal static ManualLogSource Log;
 
-        private readonly ConfigEntry<bool> _FishBarQuickProgress;
-        private readonly ConfigEntry<bool> _FishBarNoDecrease;
-        private readonly ConfigEntry<bool> _FishBarQuickBites;
-        private readonly ConfigEntry<bool> _debugLogging;
+        private static ConfigEntry<bool> _FishBarQuickProgress;
+        private static ConfigEntry<bool> _FishBarNoDecrease;
+        private static ConfigEntry<bool> _FishBarQuickBites;
+        private static ConfigEntry<bool> _InstantCatch;
+        private static ConfigEntry<bool> _debugLogging;
 
-        private readonly static bool debugLoggingStatic = true;
 
 
         public Plugin()
         {
 
-            _FishBarQuickProgress = Config.Bind("General", "Quick Progress", true, "Fishing progress fills quickly when fish is clicked on");
-            _FishBarNoDecrease = Config.Bind("General", "No Bar Decrease", true, "Fishing progress does not lower");
-            _FishBarQuickBites = Config.Bind("General", "Quick Bites", true, "reduced time before bites");
-            _debugLogging = Config.Bind("Debug", "Debug Logging", false, "logs additional information to console");
+            _FishBarQuickProgress = Config.Bind("General", "Quick Progress", true, "Fishing minigame progress fills very quickly when fish is clicked on");
+            _FishBarNoDecrease = Config.Bind("General", "No Bar Decrease", true, "Fishing minigame progress does not decrease");
+            _FishBarQuickBites = Config.Bind("General", "Quick Bites", true, "Reduced time before bites, no fake bites");
+            _debugLogging = Config.Bind("Debug", "Debug Logging", false, "Logs additional information to console");
+            _InstantCatch = Config.Bind("General", "Instant Catch", true, "Instantly catch fish once hooked instead of starting the minigame");
         }
 
 
@@ -44,30 +48,101 @@ namespace NepEasyFishing
         {
             _harmony.UnpatchSelf();
         }
-        public static void DebugLog(string message) //How to call? Can't make it static and still reference _debugLogging and Logger, , can't make _debugLogging static because then config does not work.
+        public static void DebugLog(string message) 
 
         {
             //if (_debugLogging.Value)
-            if (debugLoggingStatic)
+            if (_debugLogging.Value)
             {
                 Log.LogInfo(String.Format("### {0}", message));
             }
         }
 
         //////////////////////////////////////////////////////////////////
-        //  Harmony Patches
+        //  Fast Progress, No progress loss
 
         [HarmonyPatch(typeof(FishingUI), "StartFishingGame")]
         [HarmonyPrefix]
         static bool StartFishingGamePrefix(FishingUI __instance, Rod NBFLKCJPPAG)
         {
             //Plugin.DebugLog("StartFishingGamePrefix");
-            //Plugin.DebugLog(String.Format("Pre:  {0}, {1}", __instance.hitProgression, __instance.hitReduction));
-            __instance.hitProgression = 0.5f;
-            __instance.hitReduction = 0.0002f;
-            //Plugin.DebugLog(String.Format("Post: {0}, {1}", __instance.hitProgression, __instance.hitReduction));
+            if (_FishBarQuickProgress.Value)
+            {
+                __instance.hitProgression = 0.5f;           // default 0.05f
+            }
+            if (_FishBarNoDecrease.Value)
+            { 
+                __instance.hitReduction = 0.0002f;          // default 0.02f
+                __instance.barReductionPerSecond = 0.0002f; // default 0.15f
+            }
+            // These control fish movement, type Vector2. I assume they are loaded from the fish type
+            //__instance.movementDistanceMinMax =
+            //__instance.movementTimeMinMax = 
+            //__instance.stopTimeMinMax =
             return true;
         }
+
+
+        //////////////////////////////////////////////////////////////////
+        ///  quicker Bites
+
+        [HarmonyPatch(typeof(FishingController), "StartFishingCoroutine")]
+        [HarmonyPrefix]
+        static bool StartFishingCoroutinePrefix(FishingController __instance, Vector3 EECADGJPJAP, Rod NBFLKCJPPAG)
+        {
+
+            Plugin.DebugLog("StartFishingCoroutinePrefix");
+            if (_FishBarQuickBites.Value)
+            {
+                __instance.timeBetweenBites = 0.25f;    // default 1f
+                __instance.totalTime = 2;               // default 8
+                __instance.bitesNum.x = 1;              // default bitesNum Vector2Int(3, 5); 
+                __instance.bitesNum.y = 0;              // gets called as UnityEngine.Random.Range(this.bitesNum.x, this.bitesNum.y + 1);
+            }
+            return true;
+        }
+
+
+
+        //////////////////////////////////////////////////////////////////
+        ///  Instant Catch
+
+        
+        [HarmonyPatch(typeof(FishingUI), "LateUpdate")]
+        [HarmonyPrefix]
+        static bool LateUpdatePrefix(FishingUI __instance)
+        {
+            if (_InstantCatch.Value)
+            {
+                if (__instance.content.activeInHierarchy)
+                {
+                    // Get the private slider object
+                    FieldInfo ProgressSliderFieldIno = AccessTools.Field(typeof(FishingUI), "progress");  
+                    Slider reflectedSlider = Traverse.Create(__instance).Field("progress").GetValue<Slider>(); //type Unity.UI.Slider, NOT Unity.UIElements.Slider
+
+
+
+                    if (reflectedSlider != null)
+                    {
+                        //Plugin.DebugLog("LateUpdatePrefix: reflectedSlider found");
+                        //Plugin.DebugLog(String.Format("LateUpdatePrefix: reflectedSlider {0}", reflectedSlider.value));
+                        reflectedSlider.value = 1.0f;
+        
+                    }
+                    else
+                    {
+                        Plugin.DebugLog("LateUpdatePrefix: ProgressSlider is null");
+                    }
+                }
+            }
+            return true;
+        }
+        
+
+
     }
 
+
 }
+
+
