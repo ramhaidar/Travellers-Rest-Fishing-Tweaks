@@ -28,7 +28,7 @@ namespace NepEasyFishing
 
         public Plugin()
         {
-
+            // bind to config settings
             _FishBarQuickProgress = Config.Bind("General", "Quick Progress", true, "Fishing minigame progress fills very quickly when fish is clicked on");
             _FishBarNoDecrease = Config.Bind("General", "No Bar Decrease", true, "Fishing minigame progress does not decrease");
             _FishBarQuickBites = Config.Bind("General", "Quick Bites", true, "Reduced time before bites, no fake bites");
@@ -42,19 +42,18 @@ namespace NepEasyFishing
             // Plugin startup logic
             Log = base.Logger;
             _harmony = Harmony.CreateAndPatchAll(typeof(Plugin));
-            Logger.LogInfo($"Plugin {PluginInfo.PLUGIN_GUID} is loaded!");
+            Logger.LogInfo($"NepEasyFishing: Plugin {PluginInfo.PLUGIN_GUID} is loaded!");
         }
         private void OnDestroy()
         {
             _harmony.UnpatchSelf();
         }
         public static void DebugLog(string message) 
-
         {
-            //if (_debugLogging.Value)
+            // Log a message to console only if debug is enabled in console
             if (_debugLogging.Value)
             {
-                Log.LogInfo(String.Format("### {0}", message));
+                Log.LogInfo(String.Format("NepEasyFishing: Debug: {0}", message));
             }
         }
 
@@ -94,8 +93,9 @@ namespace NepEasyFishing
             Plugin.DebugLog("StartFishingCoroutinePrefix");
             if (_FishBarQuickBites.Value)
             {
-                __instance.timeBetweenBites = 0.25f;    // default 1f
-                __instance.totalTime = 2;               // default 8
+                // One real bite shortly after starting. 
+                __instance.timeBetweenBites = 0.1f;    // default 1f
+                __instance.totalTime = 1;               // default 8
                 __instance.bitesNum.x = 1;              // default bitesNum Vector2Int(3, 5); 
                 __instance.bitesNum.y = 0;              // gets called as UnityEngine.Random.Range(this.bitesNum.x, this.bitesNum.y + 1);
             }
@@ -117,15 +117,12 @@ namespace NepEasyFishing
                 if (__instance.content.activeInHierarchy)
                 {
                     // Get the private slider object
-                    FieldInfo ProgressSliderFieldIno = AccessTools.Field(typeof(FishingUI), "progress");  
                     Slider reflectedSlider = Traverse.Create(__instance).Field("progress").GetValue<Slider>(); //type Unity.UI.Slider, NOT Unity.UIElements.Slider
-
-
 
                     if (reflectedSlider != null)
                     {
-                        //Plugin.DebugLog("LateUpdatePrefix: reflectedSlider found");
-                        //Plugin.DebugLog(String.Format("LateUpdatePrefix: reflectedSlider {0}", reflectedSlider.value));
+                        //Plugin.DebugLog(String.Format("LateUpdatePrefix: reflectedSlider found, value {0}", reflectedSlider.value));
+                        // Set progress slider value to 1.0 for instant completion
                         reflectedSlider.value = 1.0f;
         
                     }
