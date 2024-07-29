@@ -23,6 +23,7 @@ namespace NepEasyFishing
         private static ConfigEntry<bool> _FishBarQuickBites;
         private static ConfigEntry<bool> _InstantCatch;
         private static ConfigEntry<bool> _debugLogging;
+        private static ConfigEntry<bool> _dontUseBait;
 
 
 
@@ -34,6 +35,7 @@ namespace NepEasyFishing
             _FishBarQuickBites = Config.Bind("General", "Quick Bites", true, "Reduced time before bites, no fake bites");
             _debugLogging = Config.Bind("Debug", "Debug Logging", false, "Logs additional information to console");
             _InstantCatch = Config.Bind("General", "Instant Catch", true, "Instantly catch fish once hooked instead of starting the minigame");
+            _dontUseBait =  Config.Bind("General", "Dont use bait", false, "Don't consume bait when fishing");
         }
 
 
@@ -103,11 +105,43 @@ namespace NepEasyFishing
         }
 
 
+        //////////////////////////////////////////////////////////////////
+        ///  Don't use bait
+        ///  
+
+        [HarmonyPatch(typeof(FishingController), "FinishFishing")]
+        [HarmonyPrefix]
+        static void FinishFishingPrefix(FishingController __instance)
+        {
+            if (_dontUseBait.Value)
+            { 
+                //We're going to add an extra piece of the selected bait to the players inventorey right before the code that (among other things) removes the bait.
+
+                // If we can get the numeric id of the bait Item we can make an ItemInstance of it with "new ItemInstance" 
+                //__instance.baitSelected is an enum 
+                // FishingManager.BaitItem() returns an Item when given the bait enum
+                Item baitItem = FishingManager.BaitItem(__instance.baitSelected);
+                //Then use reflection to get the id from the private field
+                int reflectedItemID = 0;
+                reflectedItemID = Traverse.Create(baitItem).Field("id").GetValue<int>();
+                if (reflectedItemID != 0)
+                {
+                    DebugLog(String.Format("FinishFishing Prefix: bait itemID {0}", reflectedItemID));
+                    ItemInstance baitItemInstance = new ItemInstance(ItemDatabaseAccessor.GetItem(reflectedItemID, false, true));
+                    PlayerInventory.GetPlayer(__instance.playerNum).AddItem(baitItemInstance); //AddItem wants an item instance, not an item
+                }
+                else
+                {
+                    DebugLog("FinishFishing Prefix: failed to get itemId for bait");
+                }
+            }
+
+        }
 
         //////////////////////////////////////////////////////////////////
         ///  Instant Catch
 
-        
+
         [HarmonyPatch(typeof(FishingUI), "LateUpdate")]
         [HarmonyPrefix]
         static bool LateUpdatePrefix(FishingUI __instance)
