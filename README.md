@@ -5,6 +5,7 @@ A Traveller's Rest mod to make fishing easier.  The following settings can be tu
 * Fishing minigame progress does not decrease
 * Reduced time before bites, no fake bites
 * Instantly catch fish once hooked instead of starting the minigame
+* Bait is not consumed when fishing
 
 ## Downloading the mod
 
