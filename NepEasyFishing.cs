@@ -64,7 +64,7 @@ namespace NepEasyFishing
 
         [HarmonyPatch(typeof(FishingUI), "StartFishingGame")]
         [HarmonyPrefix]
-        static bool StartFishingGamePrefix(FishingUI __instance, Rod NBFLKCJPPAG)
+        static bool StartFishingGamePrefix(FishingUI __instance)
         {
             //Plugin.DebugLog("StartFishingGamePrefix");
             if (_FishBarQuickProgress.Value)
