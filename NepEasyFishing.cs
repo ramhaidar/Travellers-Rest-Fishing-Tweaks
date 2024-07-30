@@ -89,7 +89,7 @@ namespace NepEasyFishing
 
         [HarmonyPatch(typeof(FishingController), "StartFishingCoroutine")]
         [HarmonyPrefix]
-        static bool StartFishingCoroutinePrefix(FishingController __instance, Vector3 EECADGJPJAP, Rod NBFLKCJPPAG)
+        static bool StartFishingCoroutinePrefix(FishingController __instance)
         {
 
             Plugin.DebugLog("StartFishingCoroutinePrefix");
