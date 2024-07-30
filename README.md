@@ -6,4 +6,6 @@ A Traveller's Rest mod to make fishing easier.  The following settings can be tu
 * Reduced time before bites, no fake bites
 * Instantly catch fish once hooked instead of starting the minigame
 
-  
+## Downloading the mod
+
+Adding Traveller's Rest to Nexus Mods is in progress, until that is complete you can download the mod from [compiled-releases](https://github.com/DrStalker/TravellersRest-EasyFishing/tree/main/compiled-releases)
