@@ -27,7 +27,7 @@ Adding Traveller's Rest to Nexus Mods is in progress, until that is complete you
     Exit the game, edit the config file, restart the game.
 
 
-##Is this mod save to add/remove mid play-through?
+## Is this mod save to add/remove mid play-through?
 
 Yes.
 
