@@ -2,11 +2,9 @@
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
-using System;
+using System.Linq;
 using System.Reflection;
-using UnityEngine;
 using UnityEngine.UI;
-using static UnityEngine.GraphicsBuffer;
 
 
 namespace NepEasyFishing
@@ -25,38 +23,56 @@ namespace NepEasyFishing
         private static ConfigEntry<bool> _debugLogging;
         private static ConfigEntry<bool> _dontUseBait;
 
+        private static readonly FieldInfo FishingControllerSettings =
+            AccessTools.Field(typeof(FishingController), "settings");
 
+        private static readonly FieldInfo FishingUISettings = AccessTools.Field(typeof(FishingUI), "settings");
+
+        private static FieldInfo DifficultySettingsField;
 
         public Plugin()
         {
             // bind to config settings
-            _FishBarQuickProgress = Config.Bind("General", "Quick Progress", true, "Fishing minigame progress fills very quickly when fish is clicked on");
-            _FishBarNoDecrease = Config.Bind("General", "No Bar Decrease", true, "Fishing minigame progress does not decrease");
-            _FishBarQuickBites = Config.Bind("General", "Quick Bites", true, "Reduced time before bites, no fake bites");
+            _FishBarQuickProgress = Config.Bind("General", "Quick Progress", true,
+                "Fishing minigame progress fills very quickly when fish is clicked on");
+            _FishBarNoDecrease = Config.Bind("General", "No Bar Decrease", true,
+                "Fishing minigame progress does not decrease");
+            _FishBarQuickBites =
+                Config.Bind("General", "Quick Bites", true, "Reduced time before bites, no fake bites");
             _debugLogging = Config.Bind("Debug", "Debug Logging", false, "Logs additional information to console");
-            _InstantCatch = Config.Bind("General", "Instant Catch", true, "Instantly catch fish once hooked instead of starting the minigame");
-            _dontUseBait =  Config.Bind("General", "Dont use bait", false, "Don't consume bait when fishing");
+            _InstantCatch = Config.Bind("General", "Instant Catch", true,
+                "Instantly catch fish once hooked instead of starting the minigame");
+            _dontUseBait = Config.Bind("General", "Dont use bait", false, "Don't consume bait when fishing");
         }
 
 
         private void Awake()
         {
             // Plugin startup logic
-            Log = base.Logger;
+            Log = Logger;
             _harmony = Harmony.CreateAndPatchAll(typeof(Plugin));
             Logger.LogInfo($"NepEasyFishing: Plugin {PluginInfo.PLUGIN_GUID} is loaded!");
+
+            // Since this field is compiler generated and the name changes each build, it needs to be looked up by type
+            var expectedType = typeof(FishingManagerSettings.DifficultySettings);
+            DifficultySettingsField = typeof(FishingUI).GetFields(BindingFlags.NonPublic | BindingFlags.Instance)
+                .FirstOrDefault(f =>
+                    f.FieldType ==
+                    expectedType);
+            if (DifficultySettingsField == null)
+                Log.LogWarning(
+                    $"Could not find field for {nameof(FishingManagerSettings)}.{nameof(FishingManagerSettings.DifficultySettings)} on {nameof(FishingUI)}.");
         }
+
         private void OnDestroy()
         {
             _harmony.UnpatchSelf();
         }
-        public static void DebugLog(string message) 
+
+        public static void DebugLog(string message)
         {
             // Log a message to console only if debug is enabled in console
-            if (_debugLogging.Value)
-            {
-                Log.LogInfo(String.Format("NepEasyFishing: Debug: {0}", message));
-            }
+            if (_debugLogging.Value) Log.LogInfo($"NepEasyFishing: Debug: {message}");
         }
 
         //////////////////////////////////////////////////////////////////
@@ -66,16 +82,25 @@ namespace NepEasyFishing
         [HarmonyPrefix]
         static bool StartFishingGamePrefix(FishingUI __instance)
         {
+            var settings = DifficultySettingsField?.GetValue(__instance) as FishingManagerSettings.DifficultySettings;
+            if (settings == null)
+            {
+                Log.LogError("Could not find FishingUI difficulty settings. Functionality disabled.");
+                return true;
+            }
+
             //Plugin.DebugLog("StartFishingGamePrefix");
             if (_FishBarQuickProgress.Value)
             {
-                __instance.hitProgression = 0.5f;           // default 0.05f
+                settings.hitProgression = 0.5f; // default 0.05f
             }
+
             if (_FishBarNoDecrease.Value)
-            { 
-                __instance.hitReduction = 0.0002f;          // default 0.02f
-                __instance.barReductionPerSecond = 0.0002f; // default 0.15f
+            {
+                settings.hitReduction = 0.0002f; // default 0.02f
+                settings.barReductionPerSecond = 0.0002f; // default 0.15f
             }
+
             // These control fish movement, type Vector2. I assume they are loaded from the fish type
             //__instance.movementDistanceMinMax =
             //__instance.movementTimeMinMax = 
@@ -86,21 +111,28 @@ namespace NepEasyFishing
 
         //////////////////////////////////////////////////////////////////
         ///  quicker Bites
-
         [HarmonyPatch(typeof(FishingController), "StartFishingCoroutine")]
         [HarmonyPrefix]
         static bool StartFishingCoroutinePrefix(FishingController __instance)
         {
-
-            Plugin.DebugLog("StartFishingCoroutinePrefix");
+            DebugLog("StartFishingCoroutinePrefix");
             if (_FishBarQuickBites.Value)
             {
+                var settings = FishingControllerSettings.GetValue(__instance) as FishingManagerSettings;
+                if (settings == null)
+                {
+                    Log.LogError("Could not find FishingManager settings. Functionality disabled.");
+                    return true;
+                }
+
                 // One real bite shortly after starting. 
-                __instance.timeBetweenBites = 0.1f;    // default 1f
-                __instance.totalTime = 1;               // default 8
-                __instance.bitesNum.x = 1;              // default bitesNum Vector2Int(3, 5); 
-                __instance.bitesNum.y = 0;              // gets called as UnityEngine.Random.Range(this.bitesNum.x, this.bitesNum.y + 1);
+                settings.timeBetweenBites = 0.1f; // default 1f
+                settings.totalTime = 1; // default 8
+                settings.bitesNum.x = 1; // default bitesNum Vector2Int(3, 5); 
+                settings.bitesNum.y =
+                    0; // gets called as UnityEngine.Random.Range(this.bitesNum.x, this.bitesNum.y + 1);
             }
+
             return true;
         }
 
@@ -108,14 +140,13 @@ namespace NepEasyFishing
         //////////////////////////////////////////////////////////////////
         ///  Don't use bait
         ///  
-
         [HarmonyPatch(typeof(FishingController), "FinishFishing")]
         [HarmonyPrefix]
         static void FinishFishingPrefix(FishingController __instance)
         {
             if (_dontUseBait.Value)
-            { 
-                //We're going to add an extra piece of the selected bait to the players inventorey right before the code that (among other things) removes the bait.
+            {
+                //We're going to add an extra piece of the selected bait to the players inventory right before the code that (among other things) removes the bait.
 
                 // If we can get the numeric id of the bait Item we can make an ItemInstance of it with "new ItemInstance" 
                 //__instance.baitSelected is an enum 
@@ -126,22 +157,19 @@ namespace NepEasyFishing
                 reflectedItemID = Traverse.Create(baitItem).Field("id").GetValue<int>();
                 if (reflectedItemID != 0)
                 {
-                    DebugLog(String.Format("FinishFishing Prefix: bait itemID {0}", reflectedItemID));
-                    ItemInstance baitItemInstance = new ItemInstance(ItemDatabaseAccessor.GetItem(reflectedItemID, false, true));
-                    PlayerInventory.GetPlayer(__instance.playerNum).AddItem(baitItemInstance); //AddItem wants an item instance, not an item
+                    DebugLog($"FinishFishing Prefix: bait itemID {reflectedItemID}");
+                    ItemInstance baitItemInstance =
+                        new ItemInstance(ItemDatabaseAccessor.GetItem(reflectedItemID, false, true));
+                    PlayerInventory.GetPlayer(__instance.playerNum)
+                        .AddItem(baitItemInstance); //AddItem wants an item instance, not an item
                 }
                 else
-                {
                     DebugLog("FinishFishing Prefix: failed to get itemId for bait");
-                }
             }
-
         }
 
         //////////////////////////////////////////////////////////////////
         ///  Instant Catch
-
-
         [HarmonyPatch(typeof(FishingUI), "LateUpdate")]
         [HarmonyPrefix]
         static bool LateUpdatePrefix(FishingUI __instance)
@@ -151,29 +179,24 @@ namespace NepEasyFishing
                 if (__instance.content.activeInHierarchy)
                 {
                     // Get the private slider object
-                    Slider reflectedSlider = Traverse.Create(__instance).Field("progress").GetValue<Slider>(); //type Unity.UI.Slider, NOT Unity.UIElements.Slider
+                    Slider reflectedSlider =
+                        Traverse.Create(__instance).Field("progress")
+                            .GetValue<Slider>(); //type Unity.UI.Slider, NOT Unity.UIElements.Slider
 
                     if (reflectedSlider != null)
                     {
                         //Plugin.DebugLog(String.Format("LateUpdatePrefix: reflectedSlider found, value {0}", reflectedSlider.value));
                         // Set progress slider value to 1.0 for instant completion
                         reflectedSlider.value = 1.0f;
-        
                     }
                     else
                     {
-                        Plugin.DebugLog("LateUpdatePrefix: ProgressSlider is null");
+                        DebugLog("LateUpdatePrefix: ProgressSlider is null");
                     }
                 }
             }
+
             return true;
         }
-        
-
-
     }
-
-
 }
-
-
