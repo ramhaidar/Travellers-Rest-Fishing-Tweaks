@@ -33,3 +33,7 @@ Yes.
 
 ﻿[Here are my notes on modding Traveler's Rest.](https://docs.google.com/document/d/e/2PACX-1vSciLNh4KgUxE4L2h_K0KAxi2hE6Z1rhroX0DJVhZIqNEgz2RvYESqffRl8GFONKKF1MjYIIGI5OKHE/pub)
 
+
+## NOTES
+
+Credit goes to [@DrStalker](https://github.com/DrStalker) for the original mod. Just updated to be compatible with the latest version of Traveller's Rest.
