@@ -1,3 +1,8 @@
+## NOTES
+
+Credit goes to [@DrStalker](https://github.com/DrStalker) for the original mod. Just updated to be compatible with the latest version of Traveller's Rest.
+For modifications you only need to change the **GameInstallDirectory** variable in the .csproj file to point to your local copy of the game.
+
 # TravellersRest-EasyFishing
 A Traveller's Rest mod to make fishing easier.  The following settings can be turned on/off in the config file:
 
@@ -9,11 +14,11 @@ A Traveller's Rest mod to make fishing easier.  The following settings can be tu
 
 ## Downloading the mod
 
-Mods are available on [Nexus Mods](https://www.nexusmods.com/travellersrest) or you can download the mod from [compiled-releases](https://github.com/DrStalker/TravellersRest-EasyFishing/tree/main/compiled-releases)
+Mods are available on [Nexus Mods](https://www.nexusmods.com/travellersrest) or you can download the mod from [GitHub](https://github.com/Skyppid/TravellersRest-EasyFishing/releases)
 
 ## How to install mods:
 
-* Install [Bepinex](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.2)﻿ (Stable version 5.4 for Windows 64; the filename will look like `BepInEx_win_x64_5.4.23.2.zip`)
+* Install [Bepinex](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.2)﻿ (Stable version 5.4 for Windows x64; the filename will look like `BepInEx_win_x64_5.4.23.2.zip`)
 * Start the game, quit the game after it finishes loading
 * This will create a Bepinex config file and a plugins folder that you can put additional mods in
 * (optional) Enable the Bepinex Console (see the detailed guide or the Bepinex documentation for steps)
@@ -32,8 +37,3 @@ Yes.
 ## Traveller's Rest Modding Guide
 
 ﻿[Here are my notes on modding Traveler's Rest.](https://docs.google.com/document/d/e/2PACX-1vSciLNh4KgUxE4L2h_K0KAxi2hE6Z1rhroX0DJVhZIqNEgz2RvYESqffRl8GFONKKF1MjYIIGI5OKHE/pub)
-
-
-## NOTES
-
-Credit goes to [@DrStalker](https://github.com/DrStalker) for the original mod. Just updated to be compatible with the latest version of Traveller's Rest.

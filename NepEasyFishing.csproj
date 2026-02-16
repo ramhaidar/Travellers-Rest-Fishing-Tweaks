@@ -1,39 +1,45 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <TargetFramework>netstandard2.1</TargetFramework>
-    <AssemblyName>net.nep.bepinex.easyfishing</AssemblyName>
-    <Description>Easy Fishing</Description>
-    <Version>1.0.2</Version>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <LangVersion>latest</LangVersion>
-    <UserSecretsId>26374c55-e306-41f1-a804-b4a7dc14b40f</UserSecretsId>
-  </PropertyGroup>
+	<PropertyGroup>
+		<TargetFramework>netstandard2.1</TargetFramework>
+		<AssemblyName>net.nep.bepinex.easyfishing</AssemblyName>
+		<Description>Easy Fishing</Description>
+		<Version>1.0.2</Version>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<LangVersion>latest</LangVersion>
+		<UserSecretsId>26374c55-e306-41f1-a804-b4a7dc14b40f</UserSecretsId>
+	</PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="BepInEx.Analyzers" Version="1.*" PrivateAssets="all" />
-    <PackageReference Include="BepInEx.Core" Version="5.*" />
-    <PackageReference Include="BepInEx.PluginInfoProps" Version="1.*" />
-    <PackageReference Include="UnityEngine.Modules" Version="2020.3.17" IncludeAssets="compile" />
-  </ItemGroup>
-  
-  <ItemGroup Condition="'$(TargetFramework.TrimEnd(`0123456789`))' == 'net'">
-    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.2" PrivateAssets="all" />
-  </ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="BepInEx.Analyzers" Version="1.*" PrivateAssets="all" />
+		<PackageReference Include="BepInEx.Core" Version="5.*" />
+		<PackageReference Include="BepInEx.PluginInfoProps" Version="1.*" />
+		<PackageReference Include="UnityEngine.Modules" Version="2020.3.17" IncludeAssets="compile" />
+	</ItemGroup>
+
+	<ItemGroup Condition="'$(TargetFramework.TrimEnd(`0123456789`))' == 'net'">
+		<PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.2" PrivateAssets="all" />
+	</ItemGroup>
 
 	<PropertyGroup>
-		<GameFilesPath>G:\Steam\steamapps\common\Travellers Rest\Windows\TravellersRest_Data\Managed</GameFilesPath>
+		<GameInstallDirectory>G:\Steam\steamapps\common\Travellers Rest</GameInstallDirectory>
+		<GameFilesPath>$(GameInstallDirectory)\Windows\TravellersRest_Data\Managed</GameFilesPath>
+		<BepInExPath>$(GameInstallDirectory)\Windows\BepInEx\plugins</BepInExPath>
 	</PropertyGroup>
-  
-  <ItemGroup>
-    <Reference Include="Assembly-CSharp">
-      <HintPath>$(GameFilesPath)\Assembly-CSharp.dll</HintPath>
-    </Reference>
-    <Reference Include="Sirenix.Serialization">
-      <HintPath>$(GameFilesPath)\Sirenix.Serialization.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.UI">
-      <HintPath>$(GameFilesPath)\UnityEngine.UI.dll</HintPath>
-    </Reference>
-  </ItemGroup>  
+
+	<ItemGroup>
+		<Reference Include="Assembly-CSharp">
+			<HintPath>$(GameFilesPath)\Assembly-CSharp.dll</HintPath>
+		</Reference>
+		<Reference Include="Sirenix.Serialization">
+			<HintPath>$(GameFilesPath)\Sirenix.Serialization.dll</HintPath>
+		</Reference>
+		<Reference Include="UnityEngine.UI">
+			<HintPath>$(GameFilesPath)\UnityEngine.UI.dll</HintPath>
+		</Reference>
+	</ItemGroup>
+
+	<Target AfterTargets="Build" Name="CopyToPluginDir">
+		<Copy SourceFiles="$(OutputPath)$(AssemblyName).dll" DestinationFolder="$(BepInExPath)" />
+	</Target>
 </Project>
