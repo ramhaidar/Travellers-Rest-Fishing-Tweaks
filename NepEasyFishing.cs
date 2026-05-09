@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -30,9 +31,16 @@ namespace NepEasyFishing
         private static ConfigEntry<bool> _InstantCatch;
         private static ConfigEntry<bool> _debugLogging;
         private static ConfigEntry<bool> _dontUseBait;
+        private static ConfigEntry<bool> _autoFish;
+        private static ConfigEntry<bool> _autoReel;
+        private static ConfigEntry<KeyboardShortcut> _autoFishToggleKey;
+        private static ConfigEntry<int> _autoFishPlayer;
+        private static ConfigEntry<float> _autoFishRecastDelay;
+        private static ConfigEntry<bool> _removeRecastDelay;
         private static bool _loggedFishingUiActive;
         private static bool _loggedPollingFallbackActive;
         private static bool _loggedEasyMinigameFallbackActive;
+        private static bool _loggedAutoFishActive;
         private static bool _loggedUpdateProof;
         private static float _nextPollingDiagnosticsTime;
         private static int _uiProbeLogFramesRemaining = 600;
@@ -49,6 +57,21 @@ namespace NepEasyFishing
         private static readonly float[] _lastSelectedBaitSeenAtByPlayer = new float[5];
         private static int _lastDontUseBaitMonitorFrame = -1;
         private static bool _isRefundingBait;
+        private static bool _autoFishRuntimeEnabled;
+        private static int _lastAutoFishToggleFrame = -1;
+        private static int _lastAutoFishPollFrame = -1;
+        private static readonly float[] _nextAutoFishCastAtByPlayer = new float[5];
+        private static readonly float[] _autoFishReelUntilByPlayer = new float[5];
+        private static readonly float[] _autoReelInputUntilByPlayer = new float[5];
+        private static readonly float[] _autoReelDirectFinishCooldownUntilByPlayer = new float[5];
+        private static readonly float[] _autoReelLastArmLogAtByPlayer = new float[5];
+        private static int _lastAutoReelPollFrame = -1;
+        private static string _autoReelCoroutineMethod = string.Empty;
+        private static float _nextAutoReelCoroutineDiagAt;
+        private static readonly float[] _lastFinishFishingAtByPlayer = new float[5];
+        private static readonly float[] _lastRemoveRecastCleanupAtByPlayer = new float[5];
+        private static readonly float[] _removeRecastDelayCleanupAtByPlayer = new float[5];
+        private static int _lastRemoveRecastDelayPollFrame = -1;
         private static readonly HashSet<int> _baitItemIds = new HashSet<int> { 1444, 1445, 1446, 1447, 1448 };
         private static readonly Dictionary<int, string> _baitNamesByItemId = new Dictionary<int, string>
         {
@@ -59,7 +82,10 @@ namespace NepEasyFishing
             { 1448, "Lure" }
         };
 
-        private const string BuildProofStamp = "20260510-003000";
+        private const int MinSafePlayerNum = 1;
+        private const int MaxSafePlayerNum = 2;
+
+        private const string BuildProofStamp = "20260510-022721";
 
         private static readonly FieldInfo FishingControllerSettings =
             AccessTools.Field(typeof(FishingController), "settings");
@@ -88,6 +114,18 @@ namespace NepEasyFishing
             _InstantCatch = Config.Bind("General", "Instant Catch", true,
                 "Instantly catch fish once hooked instead of starting the minigame");
             _dontUseBait = Config.Bind("General", "Dont use bait", false, "Don't consume bait when fishing");
+            _autoFish = Config.Bind("General", "Auto Fish", false,
+                "Automatically cast the selected fishing rod, reel in real bites, catch fish, and recast until toggled off");
+            _autoReel = Config.Bind("General", "Auto Reel", false,
+                "Automatically reels in when a real bite occurs. With Instant Catch enabled, this immediately catches the fish.");
+            _autoFishToggleKey = Config.Bind("General", "Auto Fish Toggle Key", new KeyboardShortcut(KeyCode.F9),
+                "Key used to start/stop Auto Fish at runtime");
+            _autoFishPlayer = Config.Bind("General", "Auto Fish Player", 1,
+                "Player number Auto Fish controls. Use 1 for the local single-player character");
+            _autoFishRecastDelay = Config.Bind("General", "Auto Fish Recast Delay", 0.35f,
+                "Seconds Auto Fish waits between safe recast attempts");
+            _removeRecastDelay = Config.Bind("General", "Remove Recast Delay", false,
+                "Removes the post-catch popup/hook delay so you can cast again sooner after rewards are granted.");
         }
 
 
@@ -135,10 +173,17 @@ namespace NepEasyFishing
             var playerInventoryRemoveItemOneArgMethod = ResolveMethod(typeof(PlayerInventory), "RemoveItem", new[] { typeof(Item) });
             var playerInventoryRemoveItemMethod = ResolveMethod(typeof(PlayerInventory), "RemoveItem", new[] { typeof(Item), typeof(bool) });
             var playerInventoryRemoveItemAliasMethod = ResolveMethod(typeof(PlayerInventory), "OOEJMKIAPLC", new[] { typeof(Item), typeof(bool) });
+            var playerInventoryAddItemMethod = ResolveMethod(typeof(PlayerInventory), "AddItem", new[] { typeof(ItemInstance), typeof(bool), typeof(bool), typeof(bool), typeof(bool) });
+            var playerInventoryAddItemAliasMethod = ResolveMethod(typeof(PlayerInventory), "OJDGOADOCMG", new[] { typeof(ItemInstance), typeof(bool), typeof(bool), typeof(bool), typeof(bool) });
             var containerRemoveItemMethod = ResolveMethod(typeof(Container), "RemoveItem", new[] { typeof(Item), typeof(bool) });
             var slotConsumeOneMethod = ResolveMethod(typeof(Slot), "MEODNPFJDMH", new[] { typeof(bool) });
             var slotConsumeOneAliasMethod = ResolveMethod(typeof(Slot), "MBCIJPPOGJG", new[] { typeof(bool) });
             var slotSetStackMethod = ResolveMethod(typeof(Slot), "BGJPNGLONLP", new[] { typeof(int), typeof(bool), typeof(bool) });
+            var playerInputsGetButtonDownMethod = ResolveMethod(typeof(PlayerInputs), "GetButtonDown", new[] { typeof(string) });
+            var playerInputsJcmButtonDownMethod = ResolveMethod(typeof(PlayerInputs), "JCMOPOMLPLL", new[] { typeof(string) });
+            var playerInputsDlfButtonDownMethod = ResolveMethod(typeof(PlayerInputs), "DLFAMOCKNMA", new[] { typeof(string) });
+            var monoBehaviourStartCoroutineMethod = ResolveMethod(typeof(MonoBehaviour), "StartCoroutine", new[] { typeof(IEnumerator) });
+            var fishingCoroutineMoveNextMethods = FindFishingCoroutineMoveNextMethods().ToList();
 
             DebugLog($"Target resolution: FishingUI.StartFishingGame(Rod) => {(startFishingGameMethod != null ? "FOUND" : "MISSING")}");
             DebugLog($"Target resolution: FishingController.StartFishingCoroutine(Vector3, Rod) => {(startFishingCoroutineMethod != null ? "FOUND" : "MISSING")}");
@@ -161,10 +206,19 @@ namespace NepEasyFishing
             DebugLog($"Target resolution: PlayerInventory.RemoveItem(Item) => {(playerInventoryRemoveItemOneArgMethod != null ? "FOUND" : "MISSING")}");
             DebugLog($"Target resolution: PlayerInventory.RemoveItem(Item, bool) => {(playerInventoryRemoveItemMethod != null ? "FOUND" : "MISSING")}");
             DebugLog($"Target resolution: PlayerInventory.OOEJMKIAPLC(Item, bool) => {(playerInventoryRemoveItemAliasMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: PlayerInventory.AddItem(ItemInstance,bool,bool,bool,bool) => {(playerInventoryAddItemMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: PlayerInventory.OJDGOADOCMG(ItemInstance,bool,bool,bool,bool) => {(playerInventoryAddItemAliasMethod != null ? "FOUND" : "MISSING")}");
             DebugLog($"Target resolution: Container.RemoveItem(Item, bool) => {(containerRemoveItemMethod != null ? "FOUND" : "MISSING")}");
             DebugLog($"Target resolution: Slot.MEODNPFJDMH(bool) => {(slotConsumeOneMethod != null ? "FOUND" : "MISSING")}");
             DebugLog($"Target resolution: Slot.MBCIJPPOGJG(bool) => {(slotConsumeOneAliasMethod != null ? "FOUND" : "MISSING")}");
             DebugLog($"Target resolution: Slot.BGJPNGLONLP(int,bool,bool) => {(slotSetStackMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: PlayerInputs.GetButtonDown(string) => {(playerInputsGetButtonDownMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: PlayerInputs.JCMOPOMLPLL(string) => {(playerInputsJcmButtonDownMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: PlayerInputs.DLFAMOCKNMA(string) => {(playerInputsDlfButtonDownMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: MonoBehaviour.StartCoroutine(IEnumerator) => {(monoBehaviourStartCoroutineMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: FishingController nested coroutine MoveNext methods => {fishingCoroutineMoveNextMethods.Count}");
+            foreach (var moveNext in fishingCoroutineMoveNextMethods)
+                DebugLog($"EASYFISHING_COROUTINE_TARGET type={moveNext.DeclaringType?.FullName} fields={DescribeCoroutineFields(moveNext.DeclaringType)}");
 
             try
             {
@@ -174,12 +228,16 @@ namespace NepEasyFishing
                 var finishFishingPrefix = AccessTools.Method(typeof(Plugin), nameof(FinishFishingPrefix), new[] { typeof(FishingController) });
                 var playerInventoryRemoveItemItemPrefix = AccessTools.Method(typeof(Plugin), nameof(PlayerInventoryRemoveItemItemPrefix), new[] { typeof(PlayerInventory), typeof(Item), typeof(Slot).MakeByRefType(), typeof(MethodBase) });
                 var playerInventoryRemoveItemItemBoolPrefix = AccessTools.Method(typeof(Plugin), nameof(PlayerInventoryRemoveItemItemBoolPrefix), new[] { typeof(PlayerInventory), typeof(Item), typeof(bool), typeof(Slot).MakeByRefType(), typeof(MethodBase) });
+                var playerInventoryAddItemPostfix = AccessTools.Method(typeof(Plugin), nameof(PlayerInventoryAddItemPostfix), new[] { typeof(PlayerInventory), typeof(ItemInstance), typeof(bool), typeof(MethodBase) });
                 var containerRemoveItemPrefix = AccessTools.Method(typeof(Plugin), nameof(ContainerRemoveItemPrefix), new[] { typeof(Container), typeof(Item), typeof(bool), typeof(Slot).MakeByRefType(), typeof(MethodBase) });
                 var slotConsumeOnePrefix = AccessTools.Method(typeof(Plugin), nameof(SlotConsumeOnePrefix), new[] { typeof(Slot), typeof(bool), typeof(bool).MakeByRefType(), typeof(MethodBase) });
                 var slotSetStackPrefix = AccessTools.Method(typeof(Plugin), nameof(SlotSetStackPrefix), new[] { typeof(Slot), typeof(int).MakeByRefType(), typeof(bool), typeof(bool), typeof(MethodBase) });
+                var playerInputsGetButtonDownPrefix = AccessTools.Method(typeof(Plugin), nameof(PlayerInputsButtonDownAnyPrefix), new[] { typeof(PlayerInputs), typeof(string), typeof(bool).MakeByRefType(), typeof(MethodBase) });
+                var monoBehaviourStartCoroutinePrefix = AccessTools.Method(typeof(Plugin), nameof(MonoBehaviourStartCoroutinePrefix), new[] { typeof(MonoBehaviour), typeof(IEnumerator), typeof(MethodBase) });
                 var lateUpdatePrefix = AccessTools.Method(typeof(Plugin), nameof(LateUpdatePrefix), new[] { typeof(FishingUI) });
                 var fishingHookSetFakePrefix = AccessTools.Method(typeof(Plugin), nameof(FishingHookSetFakePrefix), new[] { typeof(FishingHook) });
-                var fishingHookSetBaitPostfix = AccessTools.Method(typeof(Plugin), nameof(FishingHookSetBaitPostfix), new[] { typeof(MethodBase) });
+                var fishingHookSetBaitPostfix = AccessTools.Method(typeof(Plugin), nameof(FishingHookSetBaitPostfix), new[] { typeof(FishingHook), typeof(MethodBase) });
+                var fishingCoroutineMoveNextPrefix = AccessTools.Method(typeof(Plugin), nameof(FishingCoroutineMoveNextPrefix), new[] { typeof(object), typeof(MethodBase) });
 
                 var rodActionMethod = ResolveMethod(typeof(Rod), "Action", new[] { typeof(int), typeof(bool) });
                 var rodActionAliasEhhcMethod = ResolveMethod(typeof(Rod), "EHHCPOCLAJA", new[] { typeof(int), typeof(bool) });
@@ -239,10 +297,20 @@ namespace NepEasyFishing
                 PatchWithLogging("PlayerInventory.RemoveItem(Item)", playerInventoryRemoveItemOneArgMethod, playerInventoryRemoveItemItemPrefix, isPrefix: true);
                 PatchWithLogging("PlayerInventory.RemoveItem(Item, bool)", playerInventoryRemoveItemMethod, playerInventoryRemoveItemItemBoolPrefix, isPrefix: true);
                 PatchWithLogging("PlayerInventory.OOEJMKIAPLC(Item, bool)", playerInventoryRemoveItemAliasMethod, playerInventoryRemoveItemItemBoolPrefix, isPrefix: true);
+                PatchWithLogging("PlayerInventory.AddItem(ItemInstance,bool,bool,bool,bool)", playerInventoryAddItemMethod, playerInventoryAddItemPostfix, isPrefix: false);
+                PatchWithLogging("PlayerInventory.OJDGOADOCMG(ItemInstance,bool,bool,bool,bool)", playerInventoryAddItemAliasMethod, playerInventoryAddItemPostfix, isPrefix: false);
                 PatchWithLogging("Container.RemoveItem(Item, bool)", containerRemoveItemMethod, containerRemoveItemPrefix, isPrefix: true);
                 PatchWithLogging("Slot.MEODNPFJDMH(bool)", slotConsumeOneMethod, slotConsumeOnePrefix, isPrefix: true);
                 PatchWithLogging("Slot.MBCIJPPOGJG(bool)", slotConsumeOneAliasMethod, slotConsumeOnePrefix, isPrefix: true);
                 PatchWithLogging("Slot.BGJPNGLONLP(int,bool,bool)", slotSetStackMethod, slotSetStackPrefix, isPrefix: true);
+                PatchWithLogging("PlayerInputs.GetButtonDown(string)", playerInputsGetButtonDownMethod, playerInputsGetButtonDownPrefix, isPrefix: true);
+                PatchWithLogging("PlayerInputs.JCMOPOMLPLL(string)", playerInputsJcmButtonDownMethod, playerInputsGetButtonDownPrefix, isPrefix: true);
+                PatchWithLogging("PlayerInputs.DLFAMOCKNMA(string)", playerInputsDlfButtonDownMethod, playerInputsGetButtonDownPrefix, isPrefix: true);
+                PatchWithLogging("MonoBehaviour.StartCoroutine(IEnumerator)", monoBehaviourStartCoroutineMethod, monoBehaviourStartCoroutinePrefix, isPrefix: true);
+                foreach (var moveNext in fishingCoroutineMoveNextMethods)
+                {
+                    PatchWithLogging($"FishingController coroutine {moveNext.DeclaringType?.Name}.MoveNext()", moveNext, fishingCoroutineMoveNextPrefix, isPrefix: true);
+                }
                 PatchWithLogging("Rod.Action(int, bool) protection", rodActionMethod, rodActionPrefix, isPrefix: true);
                 PatchWithLogging("Rod.EHHCPOCLAJA(int, bool) protection", rodActionAliasEhhcMethod, rodActionPrefix, isPrefix: true);
                 PatchWithLogging("Rod.FODGNFMBOFE(int, bool) protection", rodActionAliasFodgMethod, rodActionPrefix, isPrefix: true);
@@ -331,10 +399,20 @@ namespace NepEasyFishing
                 LogPatchInfo("PlayerInventory.RemoveItem(Item)", playerInventoryRemoveItemOneArgMethod);
                 LogPatchInfo("PlayerInventory.RemoveItem(Item, bool)", playerInventoryRemoveItemMethod);
                 LogPatchInfo("PlayerInventory.OOEJMKIAPLC(Item, bool)", playerInventoryRemoveItemAliasMethod);
+                LogPatchInfo("PlayerInventory.AddItem(ItemInstance,bool,bool,bool,bool)", playerInventoryAddItemMethod);
+                LogPatchInfo("PlayerInventory.OJDGOADOCMG(ItemInstance,bool,bool,bool,bool)", playerInventoryAddItemAliasMethod);
                 LogPatchInfo("Container.RemoveItem(Item, bool)", containerRemoveItemMethod);
                 LogPatchInfo("Slot.MEODNPFJDMH(bool)", slotConsumeOneMethod);
                 LogPatchInfo("Slot.MBCIJPPOGJG(bool)", slotConsumeOneAliasMethod);
                 LogPatchInfo("Slot.BGJPNGLONLP(int,bool,bool)", slotSetStackMethod);
+                LogPatchInfo("PlayerInputs.GetButtonDown(string)", playerInputsGetButtonDownMethod);
+                LogPatchInfo("PlayerInputs.JCMOPOMLPLL(string)", playerInputsJcmButtonDownMethod);
+                LogPatchInfo("PlayerInputs.DLFAMOCKNMA(string)", playerInputsDlfButtonDownMethod);
+                LogPatchInfo("MonoBehaviour.StartCoroutine(IEnumerator)", monoBehaviourStartCoroutineMethod);
+                foreach (var moveNext in fishingCoroutineMoveNextMethods)
+                {
+                    LogPatchInfo($"FishingController coroutine {moveNext.DeclaringType?.Name}.MoveNext()", moveNext);
+                }
                 LogPatchInfo("Rod.Action(int, bool)", rodActionMethod);
                 LogPatchInfo("Rod.EHHCPOCLAJA(int, bool)", rodActionAliasEhhcMethod);
                 LogPatchInfo("Rod.FODGNFMBOFE(int, bool)", rodActionAliasFodgMethod);
@@ -495,6 +573,8 @@ namespace NepEasyFishing
 
         private void Update()
         {
+            HandleAutoFishToggle();
+
             if (!_loggedUpdateProof)
             {
                 _loggedUpdateProof = true;
@@ -516,10 +596,22 @@ namespace NepEasyFishing
                 PollQuickBitesFallback();
             }
 
+            if (IsAutoReelEnabled())
+            {
+                PollAutoReel();
+            }
+
+            if (IsRemoveRecastDelayEnabled())
+            {
+                PollRemoveRecastDelay();
+            }
+
             if (_dontUseBait?.Value == true)
             {
                 PollDontUseBaitGlobalMonitor();
             }
+
+            PollAutoFish();
 
             if (_debugLogging?.Value == true && Input.GetKeyDown(KeyCode.F8))
             {
@@ -549,6 +641,8 @@ namespace NepEasyFishing
 
             private void Update()
             {
+                HandleAutoFishToggle();
+
                 if (!_loggedTickerUpdateProof)
                 {
                     _loggedTickerUpdateProof = true;
@@ -568,10 +662,22 @@ namespace NepEasyFishing
                     PollQuickBitesFallback();
                 }
 
+                if (IsAutoReelEnabled())
+                {
+                    PollAutoReel();
+                }
+
+                if (IsRemoveRecastDelayEnabled())
+                {
+                    PollRemoveRecastDelay();
+                }
+
                 if (_dontUseBait?.Value == true)
                 {
                     PollDontUseBaitGlobalMonitor();
                 }
+
+                PollAutoFish();
 
                 if (_debugLogging?.Value == true && Input.GetKeyDown(KeyCode.F8))
                 {
@@ -586,8 +692,11 @@ namespace NepEasyFishing
             if (shouldLogProbe)
                 _uiProbeLogFramesRemaining--;
 
-            for (int playerNum = 0; playerNum <= 4; playerNum++)
+            for (int playerNum = MinSafePlayerNum; playerNum <= MaxSafePlayerNum; playerNum++)
             {
+                if (!IsPlayerRuntimeReady(playerNum))
+                    continue;
+
                 FishingUI fishingUi = null;
                 try
                 {
@@ -776,7 +885,7 @@ namespace NepEasyFishing
         {
             Log.LogInfo($"NepEasyFishing: Debug dump requested ({reason})");
 
-            for (int playerNum = 0; playerNum <= 4; playerNum++)
+            for (int playerNum = MinSafePlayerNum; playerNum <= MaxSafePlayerNum; playerNum++)
             {
                 try
                 {
@@ -800,6 +909,765 @@ namespace NepEasyFishing
                     DebugLog($"Debug dump player={playerNum} unavailable: {ex.GetType().Name}: {ex.Message}");
                 }
             }
+        }
+
+        private static void HandleAutoFishToggle()
+        {
+            if (_autoFishToggleKey == null)
+                return;
+
+            if (_lastAutoFishToggleFrame == Time.frameCount)
+                return;
+
+            try
+            {
+                if (!_autoFishToggleKey.Value.IsDown())
+                    return;
+
+                _lastAutoFishToggleFrame = Time.frameCount;
+                _autoFishRuntimeEnabled = !_autoFishRuntimeEnabled;
+                ResetAutoFishCooldowns();
+                Log.LogInfo($"EASYFISHING_AUTO_FISH_TOGGLED stamp={BuildProofStamp} enabled={IsAutoFishEnabled()} runtimeEnabled={_autoFishRuntimeEnabled} configEnabled={_autoFish?.Value}");
+            }
+            catch (Exception ex)
+            {
+                LogThrottledDiagnostic($"NepEasyFishing: Auto Fish toggle failed: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        private static bool IsAutoFishEnabled()
+        {
+            return _autoFish?.Value == true || _autoFishRuntimeEnabled;
+        }
+
+        private static bool IsAutoReelEnabled()
+        {
+            return _autoReel?.Value == true || IsAutoFishEnabled();
+        }
+
+        private static bool IsRemoveRecastDelayEnabled()
+        {
+            return _removeRecastDelay?.Value == true;
+        }
+
+        private static void ResetAutoFishCooldowns()
+        {
+            for (var i = 0; i < _nextAutoFishCastAtByPlayer.Length; i++)
+                _nextAutoFishCastAtByPlayer[i] = 0f;
+        }
+
+        private static void PollAutoFish()
+        {
+            if (!IsAutoFishEnabled())
+                return;
+
+            if (_lastAutoFishPollFrame == Time.frameCount)
+                return;
+
+            _lastAutoFishPollFrame = Time.frameCount;
+
+            var playerNum = Mathf.Clamp(_autoFishPlayer?.Value ?? 1, MinSafePlayerNum, MaxSafePlayerNum);
+            var now = Time.realtimeSinceStartup;
+
+            if (!_loggedAutoFishActive)
+            {
+                _loggedAutoFishActive = true;
+                Log.LogInfo($"EASYFISHING_AUTO_FISH_ACTIVE stamp={BuildProofStamp} player={playerNum} toggleKey={_autoFishToggleKey?.Value} recastDelay={GetAutoFishRecastDelay():0.000}");
+            }
+
+            if (playerNum >= 0 && playerNum < _nextAutoFishCastAtByPlayer.Length && now < _nextAutoFishCastAtByPlayer[playerNum])
+                return;
+
+            if (!CanAutoFishRecast(playerNum, out var reason))
+            {
+                SetAutoFishCooldown(playerNum, 0.15f);
+                if (reason != "active")
+                    LogThrottledDiagnostic($"NepEasyFishing: Auto Fish waiting player={playerNum} reason={reason}");
+                return;
+            }
+
+            bool castStarted = false;
+            try
+            {
+                var useObject = UseObject.GetPlayer(playerNum);
+                if (useObject == null)
+                {
+                    SetAutoFishCooldown(playerNum, 1.0f);
+                    LogThrottledDiagnostic($"NepEasyFishing: Auto Fish player={playerNum}: UseObject missing");
+                    return;
+                }
+
+                castStarted = useObject.UseSelectedItem(true, true, 1);
+            }
+            catch (Exception ex)
+            {
+                SetAutoFishCooldown(playerNum, 1.0f);
+                LogThrottledDiagnostic($"NepEasyFishing: Auto Fish cast failed player={playerNum}: {ex.GetType().Name}: {ex.Message}");
+                return;
+            }
+
+            SetAutoFishCooldown(playerNum, castStarted ? GetAutoFishRecastDelay() : 1.0f);
+            if (castStarted)
+                DebugLog($"EASYFISHING_AUTO_FISH_CAST player={playerNum}");
+            else
+                LogThrottledDiagnostic($"NepEasyFishing: Auto Fish cast attempt returned false player={playerNum}");
+        }
+
+        private static float GetAutoFishRecastDelay()
+        {
+            return Mathf.Max(0.05f, _autoFishRecastDelay?.Value ?? 0.35f);
+        }
+
+        private static void SetAutoFishCooldown(int playerNum, float seconds)
+        {
+            if (playerNum < 0 || playerNum >= _nextAutoFishCastAtByPlayer.Length)
+                return;
+
+            _nextAutoFishCastAtByPlayer[playerNum] = Time.realtimeSinceStartup + Mathf.Max(0.01f, seconds);
+        }
+
+        private static bool CanAutoFishRecast(int playerNum, out string reason)
+        {
+            reason = "ok";
+
+            if (!IsPlayerRuntimeReady(playerNum))
+            {
+                reason = "runtime_not_ready";
+                return false;
+            }
+
+            try
+            {
+                var player = PlayerController.GetPlayer(playerNum);
+                if (player == null)
+                {
+                    reason = "player_missing";
+                    return false;
+                }
+
+                if (player.NILLCIMMKJE)
+                {
+                    reason = "player_busy";
+                    return false;
+                }
+            }
+            catch
+            {
+                reason = "player_unavailable";
+                return false;
+            }
+
+            FishingController controller = null;
+            try
+            {
+                controller = FishingController.Get(playerNum);
+            }
+            catch
+            {
+            }
+
+            if (controller != null)
+            {
+                if (controller.fishing || IsControllerFishingCameraActive(controller))
+                {
+                    reason = "active";
+                    return false;
+                }
+
+                try
+                {
+                    var hook = Traverse.Create(controller).Field("fishingHook")?.GetValue() as FishingHook;
+                    if (hook != null)
+                    {
+                        if (hook.fishInfo != null && hook.fishInfo.activeInHierarchy)
+                        {
+                            if (IsRemoveRecastDelayEnabled() && !controller.fishing && !IsControllerFishingCameraActive(controller))
+                            {
+                                DebugLog($"EASYFISHING_INSTANT_RECAST_IGNORE_POPUP player={playerNum}");
+                            }
+                            else
+                            {
+                                reason = "fish_popup_active";
+                                return false;
+                            }
+                        }
+
+                        if (hook.gameObject != null && hook.gameObject.activeInHierarchy)
+                        {
+                            if (IsRemoveRecastDelayEnabled() && !controller.fishing && !IsControllerFishingCameraActive(controller))
+                            {
+                                DebugLog($"EASYFISHING_INSTANT_RECAST_IGNORE_COMPLETED_HOOK player={playerNum}");
+                                return true;
+                            }
+
+                            reason = "hook_active";
+                            return false;
+                        }
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            if (!IsRodSelectedForPlayer(playerNum))
+            {
+                reason = "rod_not_selected";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsControllerFishingCameraActive(FishingController controller)
+        {
+            if (controller == null)
+                return false;
+
+            try
+            {
+                var raw = Traverse.Create(controller).Field("fishingCamera")?.GetValue();
+                if (raw is bool b)
+                    return b;
+                if (raw is Camera camera)
+                    return camera != null;
+                if (raw is GameObject go)
+                    return go.activeInHierarchy;
+            }
+            catch
+            {
+            }
+
+            return true;
+        }
+
+        private static bool IsPlayerRuntimeReady(int playerNum)
+        {
+            if (playerNum < MinSafePlayerNum || playerNum > MaxSafePlayerNum)
+                return false;
+
+            try
+            {
+                var player = PlayerController.GetPlayer(playerNum);
+                if (player == null || player.gameObject == null || !player.gameObject.activeInHierarchy)
+                    return false;
+            }
+            catch
+            {
+                return false;
+            }
+
+            try
+            {
+                return UseObject.GetPlayer(playerNum) != null && FishingController.Get(playerNum) != null && PlayerInventory.GetPlayer(playerNum) != null;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsFishingSessionActive(FishingController controller)
+        {
+            if (controller == null)
+                return false;
+
+            if (controller.fishing || IsControllerFishingCameraActive(controller))
+                return true;
+
+            try
+            {
+                var hook = Traverse.Create(controller).Field("fishingHook")?.GetValue() as FishingHook;
+                return hook != null && hook.gameObject != null && hook.gameObject.activeInHierarchy;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static void TryAutoFishReel(int playerNum)
+        {
+            // Auto reel is driven through PlayerInputs.GetButtonDown patch.
+        }
+
+        static bool FishingCoroutineMoveNextPrefix(object __instance, MethodBase __originalMethod)
+        {
+            LogFishingCoroutineRuntimeDiscovery(__instance, __originalMethod);
+
+            if (!IsAutoReelEnabled())
+                return true;
+
+            try
+            {
+                var controller = GetCoroutineController(__instance);
+                var playerNum = controller?.playerNum ?? -1;
+                var reason = GetAutoReelCoroutineBlockReason(playerNum, controller, __instance, out var startValue, out var fishingTimeValue);
+                LogAutoReelCoroutineDiagnostic(playerNum, controller, __originalMethod, reason, startValue, fishingTimeValue);
+                if (reason != "trigger")
+                    return true;
+
+                var startField = GetCoroutineBoolField(__instance, "startFishMinigame");
+                if (startField != null)
+                    startField.SetValue(__instance, true);
+
+                var fishingTimeField = GetCoroutineBoolField(__instance, "fishingTime");
+                if (fishingTimeField != null)
+                    fishingTimeField.SetValue(__instance, true);
+
+                if (playerNum >= 0 && playerNum < _autoFishReelUntilByPlayer.Length)
+                    _autoFishReelUntilByPlayer[playerNum] = Time.realtimeSinceStartup + 2f;
+
+                Log.LogInfo($"EASYFISHING_AUTO_REEL_COROUTINE_TRIGGER player={playerNum} coroutine={__originalMethod?.DeclaringType?.Name}");
+            }
+            catch (Exception ex)
+            {
+                LogThrottledDiagnostic($"Auto Reel coroutine prefix failed: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            return true;
+        }
+
+        private static readonly Dictionary<string, float> _nextStartCoroutineDiscoveryLogAt = new Dictionary<string, float>();
+
+        static bool MonoBehaviourStartCoroutinePrefix(MonoBehaviour __instance, IEnumerator __0, MethodBase __originalMethod)
+        {
+            if (_debugLogging?.Value != true || __instance == null || __0 == null)
+                return true;
+
+            var ownerType = __instance.GetType();
+            var routineType = __0.GetType();
+            var interesting = __instance is FishingController || __instance is FishingUI || ownerType.Name.IndexOf("Fishing", StringComparison.OrdinalIgnoreCase) >= 0 || routineType.FullName.IndexOf("Fishing", StringComparison.OrdinalIgnoreCase) >= 0 || routineType.FullName.IndexOf("Rod", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (!interesting)
+                return true;
+
+            var key = ownerType.FullName + "|" + routineType.FullName;
+            var now = Time.realtimeSinceStartup;
+            if (_nextStartCoroutineDiscoveryLogAt.TryGetValue(key, out var next) && now < next)
+                return true;
+            _nextStartCoroutineDiscoveryLogAt[key] = now + 1.0f;
+
+            DebugLog($"EASYFISHING_START_COROUTINE owner={ownerType.FullName} routine={routineType.FullName} fields={DescribeCoroutineFields(routineType)}");
+            return true;
+        }
+
+        private static readonly Dictionary<string, float> _nextCoroutineDiscoveryLogAt = new Dictionary<string, float>();
+
+        private static void LogFishingCoroutineRuntimeDiscovery(object coroutineInstance, MethodBase originalMethod)
+        {
+            if (_debugLogging?.Value != true)
+                return;
+
+            var typeName = originalMethod?.DeclaringType?.Name ?? coroutineInstance?.GetType().Name ?? "<unknown>";
+            var now = Time.realtimeSinceStartup;
+            if (_nextCoroutineDiscoveryLogAt.TryGetValue(typeName, out var next) && now < next)
+                return;
+            _nextCoroutineDiscoveryLogAt[typeName] = now + 1.5f;
+
+            try
+            {
+                var controller = GetCoroutineController(coroutineInstance);
+                var playerNum = controller?.playerNum ?? -1;
+                var bools = DescribeCoroutineBoolValues(coroutineInstance);
+                var ints = DescribeCoroutineIntValues(coroutineInstance);
+                var floats = DescribeCoroutineFloatValues(coroutineInstance);
+                DebugLog($"EASYFISHING_COROUTINE_MOVENEXT type={typeName} player={playerNum} controller={(controller != null)} fishing={controller?.fishing} camera={(controller != null && IsControllerFishingCameraActive(controller))} session={(controller != null && IsFishingSessionActive(controller))} bites={controller?.bitesList?.Count ?? -1} bools={bools} ints={ints} floats={floats}");
+            }
+            catch (Exception ex)
+            {
+                DebugLog($"EASYFISHING_COROUTINE_MOVENEXT_DIAG_FAILED type={typeName}: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        private static string GetAutoReelCoroutineBlockReason(int playerNum, FishingController controller, object coroutineInstance, out bool startValue, out bool fishingTimeValue)
+        {
+            startValue = GetCoroutineBoolValue(coroutineInstance, "startFishMinigame");
+            fishingTimeValue = GetCoroutineBoolValue(coroutineInstance, "fishingTime");
+
+            if (controller == null)
+                return "controller_missing";
+            if (playerNum < MinSafePlayerNum || playerNum > MaxSafePlayerNum)
+                return "player_invalid";
+            if (!IsFishingSessionActive(controller))
+                return "session_inactive";
+            if (startValue)
+                return "already_started";
+
+            var armed = playerNum < _autoReelInputUntilByPlayer.Length && Time.realtimeSinceStartup <= _autoReelInputUntilByPlayer[playerNum];
+            var due = controller.bitesList != null && controller.bitesList.Count == 1 && Time.time >= controller.bitesList[0];
+            if (!armed && !due)
+                return "not_armed_or_due";
+
+            return "trigger";
+        }
+
+        private static bool GetCoroutineBoolValue(object coroutineInstance, string contains)
+        {
+            var field = GetCoroutineBoolField(coroutineInstance, contains);
+            if (field == null)
+                return false;
+            try
+            {
+                return field.GetValue(coroutineInstance) is bool value && value;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static void LogAutoReelCoroutineDiagnostic(int playerNum, FishingController controller, MethodBase originalMethod, string reason, bool startValue, bool fishingTimeValue)
+        {
+            if (_debugLogging?.Value != true)
+                return;
+            var now = Time.realtimeSinceStartup;
+            if (now < _nextAutoReelCoroutineDiagAt)
+                return;
+            _nextAutoReelCoroutineDiagAt = now + 1.0f;
+
+            var count = controller?.bitesList?.Count ?? -1;
+            var firstDelta = count > 0 ? controller.bitesList[0] - Time.time : float.NaN;
+            var armedDelta = playerNum >= 0 && playerNum < _autoReelInputUntilByPlayer.Length ? _autoReelInputUntilByPlayer[playerNum] - now : float.NaN;
+            DebugLog($"EASYFISHING_AUTO_REEL_COROUTINE_CHECK player={playerNum} coroutine={originalMethod?.DeclaringType?.Name} reason={reason} fishing={controller?.fishing} camera={(controller != null && IsControllerFishingCameraActive(controller))} session={(controller != null && IsFishingSessionActive(controller))} bites={count} firstDelta={firstDelta:0.000} armedDelta={armedDelta:0.000} start={startValue} fishingTime={fishingTimeValue}");
+        }
+
+        private static FishingController GetCoroutineController(object coroutineInstance)
+        {
+            if (coroutineInstance == null)
+                return null;
+
+            var field = coroutineInstance.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                .FirstOrDefault(f => f.FieldType == typeof(FishingController));
+            return field?.GetValue(coroutineInstance) as FishingController;
+        }
+
+        private static FieldInfo GetCoroutineBoolField(object coroutineInstance, string contains)
+        {
+            if (coroutineInstance == null)
+                return null;
+
+            return coroutineInstance.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                .FirstOrDefault(f => f.FieldType == typeof(bool) && f.Name.IndexOf(contains, StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        private static string DescribeCoroutineFields(Type type)
+        {
+            if (type == null)
+                return "<null>";
+
+            try
+            {
+                return string.Join(",", type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                    .Select(f => $"{f.FieldType.Name}:{f.Name}")
+                    .Take(20));
+            }
+            catch (Exception ex)
+            {
+                return $"<failed:{ex.GetType().Name}>";
+            }
+        }
+
+        private static string DescribeCoroutineBoolValues(object coroutineInstance)
+        {
+            return DescribeCoroutineValues(coroutineInstance, typeof(bool), value => value is bool b ? (b ? "1" : "0") : "?");
+        }
+
+        private static string DescribeCoroutineIntValues(object coroutineInstance)
+        {
+            return DescribeCoroutineValues(coroutineInstance, typeof(int), value => value?.ToString() ?? "null");
+        }
+
+        private static string DescribeCoroutineFloatValues(object coroutineInstance)
+        {
+            return DescribeCoroutineValues(coroutineInstance, typeof(float), value => value is float f ? f.ToString("0.000") : "?");
+        }
+
+        private static string DescribeCoroutineValues(object coroutineInstance, Type fieldType, Func<object, string> format)
+        {
+            if (coroutineInstance == null)
+                return "<null>";
+
+            try
+            {
+                return string.Join(",", coroutineInstance.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                    .Where(f => f.FieldType == fieldType)
+                    .Select(f => $"{f.Name}={format(f.GetValue(coroutineInstance))}")
+                    .Take(12));
+            }
+            catch (Exception ex)
+            {
+                return $"<failed:{ex.GetType().Name}>";
+            }
+        }
+
+        private static bool ShouldAutoReelCoroutine(int playerNum, FishingController controller)
+        {
+            if (playerNum < MinSafePlayerNum || playerNum > MaxSafePlayerNum)
+                return false;
+
+            if (controller == null || !IsFishingSessionActive(controller))
+                return false;
+
+            if (playerNum < _autoReelInputUntilByPlayer.Length && Time.realtimeSinceStartup <= _autoReelInputUntilByPlayer[playerNum])
+                return true;
+
+            if (controller.bitesList == null || controller.bitesList.Count != 1)
+                return false;
+
+            return Time.time >= controller.bitesList[0];
+        }
+
+        private static void PollAutoReel()
+        {
+            if (_lastAutoReelPollFrame == Time.frameCount)
+                return;
+
+            _lastAutoReelPollFrame = Time.frameCount;
+
+            for (var playerNum = MinSafePlayerNum; playerNum <= MaxSafePlayerNum; playerNum++)
+            {
+                if (!IsPlayerRuntimeReady(playerNum))
+                    continue;
+
+                FishingController controller = null;
+                try
+                {
+                    controller = FishingController.Get(playerNum);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (!IsFishingSessionActive(controller))
+                    continue;
+
+                if (controller?.bitesList == null || controller.bitesList.Count != 1)
+                    continue;
+
+                if (Time.time >= controller.bitesList[0])
+                {
+                    ArmAutoReel(playerNum, "bitesList");
+                    TryAutoReelDirectFinish(playerNum, controller);
+                }
+            }
+        }
+
+        private static void TryAutoReelDirectFinish(int playerNum, FishingController controller)
+        {
+            if (!IsAutoReelEnabled() || !_InstantCatch.Value)
+                return;
+            if (controller == null || playerNum < MinSafePlayerNum || playerNum > MaxSafePlayerNum)
+                return;
+
+            var now = Time.realtimeSinceStartup;
+            if (playerNum < _autoReelDirectFinishCooldownUntilByPlayer.Length && now < _autoReelDirectFinishCooldownUntilByPlayer[playerNum])
+                return;
+
+            try
+            {
+                var ui = FishingUI.Get(playerNum);
+                if (ui == null)
+                    return;
+
+                EnsureFishingUiHasFish(playerNum, controller, ui);
+
+                if (ui.fish == null)
+                {
+                    DebugLog($"EASYFISHING_AUTO_REEL_DIRECT_SKIP player={playerNum} reason=no_ui_fish");
+                    return;
+                }
+
+                if (playerNum < _autoReelDirectFinishCooldownUntilByPlayer.Length)
+                    _autoReelDirectFinishCooldownUntilByPlayer[playerNum] = now + 1.25f;
+
+                if (!ui.IsOpen())
+                    ui.OpenUI();
+
+                CompleteFishingUiImmediately(ui, "AutoReelDirectFinish");
+                controller.FinishFishing(true);
+                if (playerNum < _removeRecastDelayCleanupAtByPlayer.Length)
+                    _removeRecastDelayCleanupAtByPlayer[playerNum] = Time.realtimeSinceStartup + 0.2f;
+                Log.LogInfo($"EASYFISHING_AUTO_REEL_DIRECT_FINISH player={playerNum} fish={(ui.fish != null ? ui.fish.name : "<null>")}");
+            }
+            catch (Exception ex)
+            {
+                LogThrottledDiagnostic($"Auto Reel direct finish failed player={playerNum}: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        private static void EnsureFishingUiHasFish(int playerNum, FishingController controller, FishingUI ui)
+        {
+            if (ui == null || ui.fish != null)
+                return;
+
+            try
+            {
+                var rod = GetSelectedRodForPlayer(playerNum);
+                if (rod != null)
+                    ui.StartFishingGame(rod);
+            }
+            catch (Exception ex)
+            {
+                DebugLog($"EASYFISHING_AUTO_REEL_SELECT_FISH_FAILED player={playerNum}: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        private static Rod GetSelectedRodForPlayer(int playerNum)
+        {
+            try
+            {
+                var inventory = PlayerInventory.GetPlayer(playerNum);
+                var actionBar = Traverse.Create(inventory).Field("actionBarInventory")?.GetValue() as ActionBarInventory;
+                if (actionBar == null)
+                    return null;
+
+                try
+                {
+                    if (actionBar.GetSelectedItem() is Rod rod)
+                        return rod;
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    var selectedInstance = actionBar.GetSelectedItemInstance();
+                    var item = ResolveItemFromItemInstance(selectedInstance);
+                    if (item is Rod rodFromInstance)
+                        return rodFromInstance;
+                }
+                catch
+                {
+                }
+            }
+            catch
+            {
+            }
+
+            return null;
+        }
+
+        private static Item ResolveItemFromItemInstance(object itemInstance)
+        {
+            if (itemInstance == null)
+                return null;
+
+            try
+            {
+                var item = Traverse.Create(itemInstance).Method("LHBPOPOIFLE")?.GetValue() as Item;
+                if (item != null)
+                    return item;
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                return Traverse.Create(itemInstance).Method("AFOACBIHNCL")?.GetValue() as Item;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static void ArmAutoReel(int playerNum, string source)
+        {
+            if (playerNum < MinSafePlayerNum || playerNum > MaxSafePlayerNum)
+                return;
+
+            var now = Time.realtimeSinceStartup;
+            _autoReelInputUntilByPlayer[playerNum] = now + 2.0f;
+            if (now - _autoReelLastArmLogAtByPlayer[playerNum] >= 0.75f)
+            {
+                _autoReelLastArmLogAtByPlayer[playerNum] = now;
+                Log.LogInfo($"EASYFISHING_AUTO_REEL_ARMED player={playerNum} source={source}");
+            }
+        }
+
+
+        private static bool ShouldAutoReelNow(int playerNum)
+        {
+            if (!IsAutoReelEnabled())
+                return false;
+
+            if (!IsPlayerRuntimeReady(playerNum))
+                return false;
+
+            if (playerNum >= 0 && playerNum < _autoFishReelUntilByPlayer.Length && Time.realtimeSinceStartup < _autoFishReelUntilByPlayer[playerNum])
+                return false;
+
+            FishingController controller;
+            try
+            {
+                controller = FishingController.Get(playerNum);
+            }
+            catch
+            {
+                return false;
+            }
+
+            if (!IsFishingSessionActive(controller))
+                return false;
+
+            if (controller == null || controller.bitesList == null || controller.bitesList.Count == 0)
+                return false;
+
+            var due = controller.bitesList.Count == 1 && Time.time >= controller.bitesList[0];
+            var armed = playerNum >= 0 && playerNum < _autoReelInputUntilByPlayer.Length && Time.realtimeSinceStartup <= _autoReelInputUntilByPlayer[playerNum];
+            if (!due && !armed)
+                return false;
+
+            try
+            {
+                var fishingUi = FishingUI.Get(playerNum);
+                if (fishingUi != null && fishingUi.IsOpen())
+                    return false;
+            }
+            catch
+            {
+            }
+
+            return true;
+        }
+
+        static bool PlayerInputsButtonDownAnyPrefix(PlayerInputs __instance, string __0, ref bool __result, MethodBase __originalMethod)
+        {
+            // Diagnostics-only. Do not inject global input: it can close menus and still won't
+            // update the fishing coroutine's local startFishMinigame state.
+            return false;
+        }
+
+        private static bool IsFishingUseButtonName(string name)
+        {
+            return string.Equals(name, "Use", StringComparison.Ordinal) || string.Equals(name, "LeftMouseDetect", StringComparison.Ordinal);
+        }
+
+        private static bool TryResolvePlayerInputs(PlayerInputs inputs, out int playerNum)
+        {
+            playerNum = -1;
+            if (inputs == null)
+                return false;
+
+            for (var i = MinSafePlayerNum; i <= MaxSafePlayerNum; i++)
+            {
+                try
+                {
+                    if (ReferenceEquals(PlayerInputs.GetPlayer(i), inputs))
+                    {
+                        playerNum = i;
+                        return true;
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            return false;
         }
 
         private static void LogBuildProof(string source)
@@ -835,6 +1703,12 @@ namespace NepEasyFishing
                     $"QuickBites={_FishBarQuickBites?.Value} " +
                     $"InstantCatch={_InstantCatch?.Value} " +
                     $"DontUseBait={_dontUseBait?.Value} " +
+                    $"AutoFish={_autoFish?.Value} " +
+                    $"AutoReel={_autoReel?.Value} " +
+                    $"AutoFishToggleKey={_autoFishToggleKey?.Value} " +
+                    $"AutoFishPlayer={_autoFishPlayer?.Value} " +
+                    $"AutoFishRecastDelay={_autoFishRecastDelay?.Value} " +
+                    $"RemoveRecastDelay={_removeRecastDelay?.Value} " +
                     $"DebugLogging={_debugLogging?.Value}");
             }
             catch (Exception ex)
@@ -869,6 +1743,12 @@ namespace NepEasyFishing
         {
             DebugLog("StartFishingGamePostfix");
 
+            if (_InstantCatch?.Value == true)
+            {
+                CompleteFishingUiImmediately(__instance, "StartFishingGamePostfix");
+                return;
+            }
+
             if (!_FishBarQuickProgress.Value && !_FishBarNoDecrease.Value)
                 return;
 
@@ -896,6 +1776,43 @@ namespace NepEasyFishing
             //__instance.stopTimeMinMax =
         }
 
+        private static void CompleteFishingUiImmediately(FishingUI fishingUi, string source)
+        {
+            if (fishingUi == null)
+                return;
+
+            ForceFishingProgressComplete(fishingUi, source);
+
+            try
+            {
+                Traverse.Create(fishingUi).Field("FLMLLMHPJJA").SetValue(true);
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                Traverse.Create(fishingUi).Field("OOGIFKPEKMA").SetValue(true);
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                if (fishingUi.IsOpen())
+                {
+                    fishingUi.CloseUI();
+                    Log.LogInfo($"EASYFISHING_INSTANT_CATCH_UI_CLOSED source={source} player={fishingUi.JIIGOACEIKL}");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogThrottledDiagnostic($"NepEasyFishing: {source}: failed closing FishingUI: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
 
         //////////////////////////////////////////////////////////////////
         ///  quicker Bites
@@ -903,6 +1820,7 @@ namespace NepEasyFishing
         {
             DebugLog($"StartFishingAnyPrefix source={__originalMethod?.Name}");
             MarkBaitProtection(__instance?.playerNum ?? -1, 8f);
+            ApplyRemoveRecastDelaySettings(__instance, $"start:{__originalMethod?.Name}");
             if (_FishBarQuickBites.Value)
             {
                 var settings = FishingControllerSettings.GetValue(__instance) as FishingManagerSettings;
@@ -945,8 +1863,11 @@ namespace NepEasyFishing
 
         static void PollQuickBitesFallback()
         {
-            for (int playerNum = 0; playerNum <= 4; playerNum++)
+            for (int playerNum = MinSafePlayerNum; playerNum <= MaxSafePlayerNum; playerNum++)
             {
+                if (!IsPlayerRuntimeReady(playerNum))
+                    continue;
+
                 FishingController controller = null;
                 try
                 {
@@ -958,6 +1879,9 @@ namespace NepEasyFishing
                 }
 
                 if (controller?.bitesList == null || controller.bitesList.Count == 0)
+                    continue;
+
+                if (!IsFishingSessionActive(controller))
                     continue;
 
                 var shouldNormalize = controller.bitesList.Count > 1;
@@ -991,12 +1915,16 @@ namespace NepEasyFishing
             return false;
         }
 
-        static void FishingHookSetBaitPostfix(MethodBase __originalMethod)
+        static void FishingHookSetBaitPostfix(FishingHook __instance, MethodBase __originalMethod)
         {
-            if (_FishBarQuickBites?.Value != true)
-                return;
+            var controller = FindControllerForHook(__instance);
+            var playerNum = controller?.playerNum ?? -1;
 
-            DebugLog("QuickBites observed SetBait");
+            if (_FishBarQuickBites?.Value == true)
+                DebugLog($"QuickBites observed SetBait player={playerNum}");
+
+            if (IsAutoReelEnabled())
+                ArmAutoReel(playerNum, "FishingHook.SetBait");
         }
 
         static FishingController FindControllerForHook(FishingHook hook)
@@ -1024,7 +1952,7 @@ namespace NepEasyFishing
             {
             }
 
-            for (int playerNum = 0; playerNum <= 4; playerNum++)
+            for (int playerNum = MinSafePlayerNum; playerNum <= MaxSafePlayerNum; playerNum++)
             {
                 FishingController controller = null;
                 try
@@ -1053,6 +1981,175 @@ namespace NepEasyFishing
             return null;
         }
 
+        private static IEnumerable<MethodBase> FindFishingCoroutineMoveNextMethods()
+        {
+            foreach (var nestedType in typeof(FishingController).GetNestedTypes(BindingFlags.NonPublic | BindingFlags.Public))
+            {
+                MethodInfo moveNext = null;
+                try
+                {
+                    moveNext = AccessTools.Method(nestedType, "MoveNext", Type.EmptyTypes);
+                }
+                catch
+                {
+                }
+
+                if (moveNext == null)
+                    continue;
+
+                var fields = nestedType.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                var hasController = fields.Any(f => f.FieldType == typeof(FishingController));
+                if (hasController)
+                    yield return moveNext;
+            }
+        }
+
+        //////////////////////////////////////////////////////////////////
+        ///  Runtime discovery / context hooks
+        static bool RodActionPrefix(int __0, bool __1, MethodBase __originalMethod)
+        {
+            if (__1)
+                MarkBaitProtection(__0, 8f);
+
+            LogRecastAttemptDiagnostics(__0, __originalMethod?.Name, "prefix");
+
+            DebugLog($"Diag Rod.{__originalMethod?.Name} prefix player={__0} pressed={__1}");
+            return true;
+        }
+
+        static void RodActionPostfix(int __0, bool __1, bool __result, MethodBase __originalMethod)
+        {
+            if (__result)
+                MarkBaitProtection(__0, 8f);
+
+            if (!__result)
+                LogRecastAttemptDiagnostics(__0, __originalMethod?.Name, "postfix-failed");
+
+            DebugLog($"Diag Rod.{__originalMethod?.Name} postfix player={__0} pressed={__1} result={__result}");
+        }
+
+        static void LogRecastAttemptDiagnostics(int playerNum, string methodName, string stage)
+        {
+            if (_debugLogging?.Value != true || !IsRemoveRecastDelayEnabled())
+                return;
+            if (playerNum < MinSafePlayerNum || playerNum > MaxSafePlayerNum)
+                return;
+
+            var now = Time.realtimeSinceStartup;
+            var sinceFinish = playerNum < _lastFinishFishingAtByPlayer.Length && _lastFinishFishingAtByPlayer[playerNum] > 0f ? now - _lastFinishFishingAtByPlayer[playerNum] : -1f;
+            var sinceCleanup = playerNum < _lastRemoveRecastCleanupAtByPlayer.Length && _lastRemoveRecastCleanupAtByPlayer[playerNum] > 0f ? now - _lastRemoveRecastCleanupAtByPlayer[playerNum] : -1f;
+            if (sinceFinish > 8f && sinceCleanup > 8f)
+                return;
+
+            try
+            {
+                var controller = GetFishingControllerSafe(playerNum);
+                var hook = controller == null ? null : Traverse.Create(controller).Field("fishingHook")?.GetValue() as FishingHook;
+                var player = PlayerController.GetPlayer(playerNum);
+                DebugLog($"EASYFISHING_RECAST_ATTEMPT player={playerNum} method={methodName} stage={stage} sinceFinish={sinceFinish:0.000} sinceCleanup={sinceCleanup:0.000} playerBusy={player?.NILLCIMMKJE} fishing={controller?.fishing} camera={(controller != null && IsControllerFishingCameraActive(controller))} hookActive={(hook?.gameObject != null && hook.gameObject.activeInHierarchy)} fishInfoActive={(hook?.fishInfo != null && hook.fishInfo.activeInHierarchy)} rodSelected={IsRodSelectedForPlayer(playerNum)}");
+            }
+            catch (Exception ex)
+            {
+                DebugLog($"EASYFISHING_RECAST_ATTEMPT_DIAG_FAILED player={playerNum}: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        static void RodNbfbPostfix(int __0, bool __result)
+        {
+            DebugLog($"Diag Rod.NBFBPMNMBJG player={__0} result={__result}");
+        }
+
+        static void RodOfakPostfix(int __0, bool __result)
+        {
+            if (__result)
+                MarkBaitProtection(__0, 8f);
+
+            DebugLog($"Diag Rod.OFAKNHNLKGI player={__0} result={__result}");
+        }
+
+        static void RodAnimationStagePrefix(int __0, MethodBase __originalMethod)
+        {
+            MarkBaitProtection(__0, 8f);
+            DebugLog($"Diag Rod.{__originalMethod?.Name} animation player={__0}");
+        }
+
+        static void CharacterAnimatorToolStagePrefix(MethodBase __originalMethod)
+        {
+            DebugLog($"Diag CharacterAnimator.{__originalMethod?.Name}");
+        }
+
+        static void FishingUiOpenClosePrefix(MethodBase __originalMethod, object[] __args)
+        {
+            DebugLog($"Diag FishingUI.{__originalMethod?.Name} args={(__args == null ? 0 : __args.Length)}");
+        }
+
+        static void SelectAFishPostfix(int __0, Fish __result)
+        {
+            DebugLog($"Diag FishingManager.SelectAFish player={__0} fishType={__result?.GetType().Name ?? "null"}");
+        }
+
+        static void UseSelectedItemPostfix(UseObject __instance, bool __0, bool __1, int __2, bool __result)
+        {
+            var playerNum = TryReadPlayerNum(__instance);
+            if (__result)
+                MarkBaitProtection(playerNum, 8f);
+
+            DebugLog($"Diag UseObject.UseSelectedItem player={playerNum} pressed={__0} allow={__1} actionIndex={__2} result={__result}");
+        }
+
+        static void ActionSelectedItemPostfix(ActionBarInventory __instance, int __0, bool __1, bool __2, bool __3, bool __4, int __5, bool __result)
+        {
+            if (__result)
+                MarkBaitProtection(__0, 8f);
+
+            DebugLog($"Diag ActionBarInventory.ActionSelectedItem player={__0} pressed={__1} allow={__2} objectClick={__3} skip={__4} actionIndex={__5} result={__result}");
+        }
+
+        static void ActionBarMbohPostfix(ActionBarInventory __instance, object __result)
+        {
+            DebugLog($"Diag ActionBarInventory.MBOHNGNNCED resultType={__result?.GetType().FullName ?? "null"}");
+        }
+
+        static bool ActionBarAnyActionPrefix(ActionBarInventory __instance, int __0, bool __1, MethodBase __originalMethod)
+        {
+            if (__1)
+                MarkBaitProtection(__0, 8f);
+
+            DebugLog($"Diag ActionBarInventory.{__originalMethod?.Name} prefix player={__0} pressed={__1}");
+            return true;
+        }
+
+        static int TryReadPlayerNum(object instance)
+        {
+            if (instance == null)
+                return -1;
+
+            foreach (var memberName in new[] { "JIIGOACEIKL", "playerNum", "_playerNum" })
+            {
+                try
+                {
+                    var fieldValue = Traverse.Create(instance).Field(memberName)?.GetValue();
+                    if (fieldValue is int fieldInt)
+                        return fieldInt;
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    var propertyValue = Traverse.Create(instance).Property(memberName)?.GetValue();
+                    if (propertyValue is int propertyInt)
+                        return propertyInt;
+                }
+                catch
+                {
+                }
+            }
+
+            return -1;
+        }
+
 
         //////////////////////////////////////////////////////////////////
         ///  Don't use bait
@@ -1061,6 +2158,31 @@ namespace NepEasyFishing
         {
             DebugLog("FinishFishingPrefix");
             MarkBaitProtection(__instance?.playerNum ?? -1, 2f);
+            ApplyRemoveRecastDelaySettings(__instance, "FinishFishing");
+            var playerNum = __instance?.playerNum ?? -1;
+            if (playerNum >= 0 && playerNum < _lastFinishFishingAtByPlayer.Length)
+                _lastFinishFishingAtByPlayer[playerNum] = Time.realtimeSinceStartup;
+        }
+
+        static void ApplyRemoveRecastDelaySettings(FishingController controller, string source)
+        {
+            if (!IsRemoveRecastDelayEnabled() || controller == null)
+                return;
+
+            try
+            {
+                var settings = FishingControllerSettings.GetValue(controller) as FishingManagerSettings;
+                if (settings == null)
+                    return;
+
+                settings.rollUpWaitTime = 0f;
+                settings.rollUpTime = 0.01f;
+                DebugLog($"EASYFISHING_REMOVE_RECAST_DELAY_SETTINGS_APPLIED source={source} player={controller.playerNum}");
+            }
+            catch (Exception ex)
+            {
+                LogThrottledDiagnostic($"Remove Recast Delay settings failed source={source}: {ex.GetType().Name}: {ex.Message}");
+            }
         }
 
         static bool PlayerInventoryRemoveItemItemPrefix(PlayerInventory __instance, Item __0, ref Slot __result, MethodBase __originalMethod)
@@ -1366,7 +2488,7 @@ namespace NepEasyFishing
             {
             }
 
-            for (var i = 0; i <= 4; i++)
+            for (var i = MinSafePlayerNum; i <= MaxSafePlayerNum; i++)
             {
                 try
                 {
@@ -1385,6 +2507,152 @@ namespace NepEasyFishing
             return false;
         }
 
+        static void PlayerInventoryAddItemPostfix(PlayerInventory __instance, ItemInstance __0, bool __result, MethodBase __originalMethod)
+        {
+            if (!IsRemoveRecastDelayEnabled() || !__result)
+                return;
+
+            if (!TryGetPlayerNumFromInventory(__instance, out var playerNum))
+                return;
+
+            var controller = GetFishingControllerSafe(playerNum);
+            if (controller == null)
+                return;
+
+            Log.LogInfo($"EASYFISHING_ADD_ITEM_SEEN player={playerNum} method={__originalMethod?.Name} result={__result} fishing={controller.fishing} camera={IsControllerFishingCameraActive(controller)} uiFish={HasFishingUiFish(playerNum)}");
+
+            if (!LooksLikeFishingRewardContext(playerNum, controller))
+                return;
+
+            _removeRecastDelayCleanupAtByPlayer[playerNum] = Time.realtimeSinceStartup + 0.05f;
+            Log.LogInfo($"EASYFISHING_REMOVE_RECAST_DELAY_REWARD_SEEN player={playerNum} method={__originalMethod?.Name}");
+        }
+
+        static bool LooksLikeFishingRewardContext(int playerNum, FishingController controller)
+        {
+            if (controller == null)
+                return false;
+
+            if (HasFishingUiFish(playerNum))
+                return true;
+
+            try
+            {
+                var hook = Traverse.Create(controller).Field("fishingHook")?.GetValue() as FishingHook;
+                if (hook != null)
+                {
+                    if (hook.fishInfo != null && hook.fishInfo.activeInHierarchy)
+                        return true;
+                    if (hook.gameObject != null && hook.gameObject.activeInHierarchy && (controller.fishing || IsControllerFishingCameraActive(controller)))
+                        return true;
+                }
+            }
+            catch
+            {
+            }
+
+            return controller.fishing || IsControllerFishingCameraActive(controller);
+        }
+
+        static bool HasFishingUiFish(int playerNum)
+        {
+            try
+            {
+                var ui = FishingUI.Get(playerNum);
+                return ui?.fish != null;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        static void PollRemoveRecastDelay()
+        {
+            if (_lastRemoveRecastDelayPollFrame == Time.frameCount)
+                return;
+
+            _lastRemoveRecastDelayPollFrame = Time.frameCount;
+            var now = Time.realtimeSinceStartup;
+
+            for (var playerNum = MinSafePlayerNum; playerNum <= MaxSafePlayerNum; playerNum++)
+            {
+                if (!IsPlayerRuntimeReady(playerNum))
+                    continue;
+
+                var controller = GetFishingControllerSafe(playerNum);
+                if (controller == null)
+                    continue;
+
+                if (playerNum >= 0 && playerNum < _removeRecastDelayCleanupAtByPlayer.Length && _removeRecastDelayCleanupAtByPlayer[playerNum] > 0f && now >= _removeRecastDelayCleanupAtByPlayer[playerNum])
+                {
+                    TryClearCompletedFishingHook(playerNum, "reward-seen");
+                    _removeRecastDelayCleanupAtByPlayer[playerNum] = 0f;
+                    continue;
+                }
+
+                if (!controller.fishing && !IsControllerFishingCameraActive(controller))
+                    TryClearCompletedFishingHook(playerNum, "completed-state");
+            }
+        }
+
+        static void TryClearCompletedFishingHook(int playerNum, string source)
+        {
+            var controller = GetFishingControllerSafe(playerNum);
+            if (controller == null)
+                return;
+
+            if (source != "reward-seen" && (controller.fishing || IsControllerFishingCameraActive(controller)))
+                return;
+
+            try
+            {
+                var hook = Traverse.Create(controller).Field("fishingHook")?.GetValue() as FishingHook;
+                if (hook == null)
+                    return;
+
+                var fishInfoActive = hook.fishInfo != null && hook.fishInfo.activeInHierarchy;
+                var hookActive = hook.gameObject != null && hook.gameObject.activeInHierarchy;
+                if (!fishInfoActive && !hookActive)
+                    return;
+
+                if (hook.fishInfo != null)
+                    hook.fishInfo.SetActive(false);
+                if (hook.gameObject != null)
+                    hook.gameObject.SetActive(false);
+
+                try
+                {
+                    var player = PlayerController.GetPlayer(playerNum);
+                    if (player != null)
+                        player.NILLCIMMKJE = false;
+                }
+                catch
+                {
+                }
+
+                if (source == "reward-seen" || source == "completed-state")
+                {
+                    controller.fishing = false;
+                    try
+                    {
+                        Traverse.Create(controller).Field("fishingCamera").SetValue(false);
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                Log.LogInfo($"EASYFISHING_REMOVE_RECAST_DELAY_CLEARED player={playerNum} source={source} hookWasActive={hookActive} fishInfoWasActive={fishInfoActive}");
+                if (playerNum >= 0 && playerNum < _lastRemoveRecastCleanupAtByPlayer.Length)
+                    _lastRemoveRecastCleanupAtByPlayer[playerNum] = Time.realtimeSinceStartup;
+            }
+            catch (Exception ex)
+            {
+                LogThrottledDiagnostic($"Remove Recast Delay cleanup failed player={playerNum} source={source}: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
         static bool TryGetPlayerNumFromInventoryOrContainer(object inventoryOrContainer, out int playerNum)
         {
             playerNum = -1;
@@ -1397,7 +2665,7 @@ namespace NepEasyFishing
             if (TryGetPlayerNumFromObjectField(inventoryOrContainer, out playerNum))
                 return true;
 
-            for (var i = 0; i <= 4; i++)
+            for (var i = MinSafePlayerNum; i <= MaxSafePlayerNum; i++)
             {
                 try
                 {
@@ -1454,7 +2722,7 @@ namespace NepEasyFishing
 
         static void PollDontUseBaitRefundFallback()
         {
-            for (var playerNum = 0; playerNum <= 4; playerNum++)
+            for (var playerNum = MinSafePlayerNum; playerNum <= MaxSafePlayerNum; playerNum++)
             {
                 if (playerNum < 0 || playerNum >= _protectedBaitIdByPlayer.Length)
                     continue;
@@ -1488,8 +2756,11 @@ namespace NepEasyFishing
             _lastDontUseBaitMonitorFrame = Time.frameCount;
             var now = Time.realtimeSinceStartup;
 
-            for (var playerNum = 0; playerNum <= 4; playerNum++)
+            for (var playerNum = MinSafePlayerNum; playerNum <= MaxSafePlayerNum; playerNum++)
             {
+                if (!IsPlayerRuntimeReady(playerNum))
+                    continue;
+
                 var selectedBaitId = GetSelectedFishingBaitItemId(playerNum);
                 var rodSelected = IsRodSelectedForPlayer(playerNum);
                 var fishingContext = IsFishingContext(playerNum);
@@ -1784,17 +3055,8 @@ namespace NepEasyFishing
                     if (controller.fishing)
                         return true;
 
-                    try
-                    {
-                        var fishingCameraObj = Traverse.Create(controller).Field("fishingCamera")?.GetValue();
-                        if (fishingCameraObj is Camera fishingCamera && fishingCamera != null)
-                            return true;
-                        if (fishingCameraObj is GameObject cameraGo && cameraGo.activeInHierarchy)
-                            return true;
-                    }
-                    catch
-                    {
-                    }
+                    if (IsControllerFishingCameraActive(controller))
+                        return true;
 
                     var hook = Traverse.Create(controller).Field("fishingHook")?.GetValue() as FishingHook;
                     if (hook != null)
@@ -1858,7 +3120,7 @@ namespace NepEasyFishing
             if (slot == null)
                 return false;
 
-            for (var i = 0; i <= 4; i++)
+            for (var i = MinSafePlayerNum; i <= MaxSafePlayerNum; i++)
             {
                 PlayerInventory inventory = null;
                 try
@@ -1938,138 +3200,5 @@ namespace NepEasyFishing
             return true;
         }
 
-        //////////////////////////////////////////////////////////////////
-        ///  Discovery diagnostics
-        static void RodActionPrefix(int __0, bool __1, MethodBase __originalMethod)
-        {
-            if (_dontUseBait?.Value == true && __1)
-            {
-                MarkBaitProtection(__0, 12f);
-                MarkBaitProtectionForAllPlayers(2f);
-                DebugLog($"EASYFISHING_BAIT_PROTECTION_MARKED source=Rod.{__originalMethod?.Name} playerNum={__0} canAct={__1}");
-            }
-        }
-
-        static void ActionBarAnyActionPrefix(ActionBarInventory __instance, int __0, bool __1, MethodBase __originalMethod)
-        {
-            if (_dontUseBait?.Value != true)
-                return;
-
-            if (!__1)
-                return;
-
-            bool isRod = false;
-            try
-            {
-                var selectedItemObj = __instance?.GetSelectedItem();
-                var selectedInstanceObj = __instance?.GetSelectedItemInstance();
-                var selectedType = selectedItemObj?.GetType().Name ?? "";
-                var instanceType = selectedInstanceObj?.GetType().Name ?? "";
-                isRod = selectedType.Contains("Rod") || instanceType.Contains("Rod");
-            }
-            catch
-            {
-            }
-
-            if (!isRod)
-                return;
-
-            MarkBaitProtection(__0, 12f);
-            DebugLog($"EASYFISHING_BAIT_PROTECTION_MARKED source=ActionBarInventory.{__originalMethod?.Name} playerNum={__0} canAct={__1}");
-        }
-
-        static void RodActionPostfix(int __0, bool __1, bool __result, MethodBase __originalMethod)
-        {
-            var controller = FishingController.Get(__0);
-            var fishing = SafeMemberReadAsString(controller, "fishing");
-            var baitSelected = SafeMemberReadAsString(controller, "baitSelected");
-            DebugLog($"Diag Rod.{__originalMethod?.Name}: playerNum={__0}, canAct={__1}, result={__result}, fishing={fishing}, baitSelected={baitSelected}");
-        }
-
-        static void RodNbfbPostfix(int __0, bool __result)
-        {
-            DebugLog($"Diag Rod.NBFBPMNMBJG: playerNum={__0}, result={__result}");
-        }
-
-        static void RodOfakPostfix(int __0, bool __result)
-        {
-            DebugLog($"Diag Rod.OFAKNHNLKGI: playerNum={__0}, result={__result}");
-        }
-
-        static void RodAnimationStagePrefix(int __0, MethodBase __originalMethod)
-        {
-            DebugLog($"Diag Rod.{__originalMethod?.Name}: playerNum={__0}");
-        }
-
-        static void CharacterAnimatorToolStagePrefix(MethodBase __originalMethod)
-        {
-            DebugLog($"Diag CharacterAnimator.{__originalMethod?.Name}");
-        }
-
-        static void FishingUiOpenClosePrefix(MethodBase __originalMethod, object[] __args)
-        {
-            string playerNum = "n/a";
-            if (__args != null && __args.Length > 0 && __args[0] is int p)
-                playerNum = p.ToString();
-
-            DebugLog($"Diag FishingUI.{__originalMethod?.Name}: playerNum={playerNum}");
-        }
-
-        static void SelectAFishPostfix(int __0, Fish __result)
-        {
-            var isNull = __result == null;
-            var fishInfo = DescribeFishResult(__result);
-            DebugLog($"Diag FishingManager.SelectAFish: playerNum={__0}, isNull={isNull}, fish={fishInfo}");
-        }
-
-        static void UseSelectedItemPostfix(UseObject __instance, bool __0, bool __1, int __2, bool __result)
-        {
-            var playerNum = SafeMemberReadAsString(__instance, "JIIGOACEIKL");
-            DebugLog($"Diag UseObject.UseSelectedItem: playerNum={playerNum}, canAct={__0}, allowSelectedAction={__1}, actionIndex={__2}, result={__result}");
-        }
-
-        static void ActionSelectedItemPostfix(ActionBarInventory __instance, int __0, bool __1, bool __2, bool __3, bool __4, int __5, bool __result)
-        {
-            string selectedState;
-            try
-            {
-                var selectedItemObj = __instance.GetSelectedItem();
-                var selectedItemType = selectedItemObj?.GetType().Name ?? "null";
-                var selectedInstanceObj = __instance.GetSelectedItemInstance();
-                var selectedInstanceType = selectedInstanceObj?.GetType().Name ?? "null";
-                var currentSlot = __instance.GetCurrentSlotSelected().ToString();
-                var selectedItemActionable = selectedItemObj is IActionable;
-                var selectedInstanceActionable = selectedInstanceObj is IActionable;
-                selectedState = $"selectedItemType={selectedItemType}, selectedInstanceType={selectedInstanceType}, currentSlot={currentSlot}, selectedItemActionable={selectedItemActionable}, selectedInstanceActionable={selectedInstanceActionable}";
-            }
-            catch
-            {
-                selectedState = "selectedItemType=n/a, selectedInstanceType=n/a, currentSlot=n/a, selectedItemActionable=n/a, selectedInstanceActionable=n/a";
-            }
-
-            DebugLog($"Diag ActionBarInventory.ActionSelectedItem: playerNum={__0}, canAct={__1}, allowSelectedAction={__2}, objectClick={__3}, skipActionable={__4}, actionIndex={__5}, result={__result}, {selectedState}");
-        }
-
-        static void ActionBarMbohPostfix(ActionBarInventory __instance, object __result)
-        {
-            var actionableType = __result?.GetType().Name ?? "null";
-            string selectedState;
-            try
-            {
-                var selectedItemObj = __instance.GetSelectedItem();
-                var selectedItemType = selectedItemObj?.GetType().Name ?? "null";
-                var selectedInstanceObj = __instance.GetSelectedItemInstance();
-                var selectedInstanceType = selectedInstanceObj?.GetType().Name ?? "null";
-                var selectedItemActionable = selectedItemObj is IActionable;
-                var selectedInstanceActionable = selectedInstanceObj is IActionable;
-                selectedState = $"selectedItemType={selectedItemType}, selectedInstanceType={selectedInstanceType}, selectedItemActionable={selectedItemActionable}, selectedInstanceActionable={selectedInstanceActionable}";
-            }
-            catch
-            {
-                selectedState = "selectedItemType=n/a, selectedInstanceType=n/a, selectedItemActionable=n/a, selectedInstanceActionable=n/a";
-            }
-
-            DebugLog($"Diag ActionBarInventory.MBOHNGNNCED: actionableType={actionableType}, {selectedState}");
-        }
     }
 }
