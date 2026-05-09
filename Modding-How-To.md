@@ -347,6 +347,6 @@ There are other .dot .NET debuggers, this is the one I use.
 ### Source code for some example mods
 
 - [Add One Gold - Proof of Concept mod for Traveller’s Rest](https://www.google.com/url?q=https://github.com/DrStalker/TravellersRest-AddOneGold&sa=D&source=editors&ust=1778246260487464&usg=AOvVaw1lmHmlEwRVoY5xAlhhmbaj)
-- [Easy Fishing](https://www.google.com/url?q=https://github.com/DrStalker/TravellersRest-EasyFishing&sa=D&source=editors&ust=1778246260487671&usg=AOvVaw3uIJ9ij2h2SHJnSo9UrwA5)
+- [Travellers Rest Fishing Tweaks](https://www.google.com/url?q=https://github.com/DrStalker/TravellersRestFishingTweaks&sa=D&source=editors&ust=1778246260487671&usg=AOvVaw3uIJ9ij2h2SHJnSo9UrwA5)
 - [Better Clock](https://www.google.com/url?q=https://github.com/DrStalker/TravellersRest-BetterClock&sa=D&source=editors&ust=1778246260487896&usg=AOvVaw0hrEEM9hTmlDB7EOln-m0V)
 - [More Harvests](https://www.google.com/url?q=http://moreharvests&sa=D&source=editors&ust=1778246260488068&usg=AOvVaw34JKwxsqbOpdGZKQTOvbwD)
