@@ -38,7 +38,7 @@ namespace NepEasyFishing
         private static int _uiProbeLogFramesRemaining = 600;
         private static readonly float[] _maxFishingProgressByPlayer = new float[5];
 
-        private const string BuildProofStamp = "20260509-215811";
+        private const string BuildProofStamp = "20260509-224500";
 
         private static readonly FieldInfo FishingControllerSettings =
             AccessTools.Field(typeof(FishingController), "settings");
@@ -95,20 +95,45 @@ namespace NepEasyFishing
 
             var startFishingGameMethod = AccessTools.Method(typeof(FishingUI), nameof(FishingUI.StartFishingGame), new[] { typeof(Rod) });
             var startFishingCoroutineMethod = AccessTools.Method(typeof(FishingController), nameof(FishingController.StartFishingCoroutine), new[] { typeof(Vector3), typeof(Rod) });
+            var startFishingCoroutineAliasEhofMethod = ResolveMethod(typeof(FishingController), "EHOFOMHDPFJ", new[] { typeof(Vector3), typeof(Rod) });
+            var startFishingCoroutineAliasJfmcMethod = ResolveMethod(typeof(FishingController), "JFMCNPDJLLI", new[] { typeof(Vector3), typeof(Rod) });
+            var startFishingCoroutineAliasFfkpMethod = ResolveMethod(typeof(FishingController), "FFKPLBGGKLB", new[] { typeof(Vector3), typeof(Rod) });
+            var startFishingCoroutineAliasJkofMethod = ResolveMethod(typeof(FishingController), "JKOFBKKPJAN", new[] { typeof(Vector3), typeof(Rod) });
+            var startFishingCoroutineAliasMojhMethod = ResolveMethod(typeof(FishingController), "MOJHEIHKEKO", new[] { typeof(Vector3), typeof(Rod) });
+            var createBitesListMethod = AccessTools.Method(typeof(FishingController), nameof(FishingController.CreateBitesList), Type.EmptyTypes);
+            var createBitesListAliasFmceMethod = ResolveMethod(typeof(FishingController), "FMCEGPBACPC", Type.EmptyTypes);
+            var createBitesListAliasIhiaMethod = ResolveMethod(typeof(FishingController), "IHIAGODKCLJ", Type.EmptyTypes);
+            var createBitesListAliasEgdoMethod = ResolveMethod(typeof(FishingController), "EGDOBIADPMA", Type.EmptyTypes);
             var finishFishingMethod = AccessTools.Method(typeof(FishingController), nameof(FishingController.FinishFishing), new[] { typeof(bool) });
             var lateUpdateMethod = AccessTools.Method(typeof(FishingUI), "LateUpdate", Type.EmptyTypes);
+            var fishingHookSetFakeMethod = ResolveMethod(typeof(FishingHook), "SetFake", Type.EmptyTypes);
+            var fishingHookSetBaitMethod = ResolveMethod(typeof(FishingHook), "SetBait", Type.EmptyTypes);
 
             DebugLog($"Target resolution: FishingUI.StartFishingGame(Rod) => {(startFishingGameMethod != null ? "FOUND" : "MISSING")}");
             DebugLog($"Target resolution: FishingController.StartFishingCoroutine(Vector3, Rod) => {(startFishingCoroutineMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: FishingController.EHOFOMHDPFJ(Vector3, Rod) => {(startFishingCoroutineAliasEhofMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: FishingController.JFMCNPDJLLI(Vector3, Rod) => {(startFishingCoroutineAliasJfmcMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: FishingController.FFKPLBGGKLB(Vector3, Rod) => {(startFishingCoroutineAliasFfkpMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: FishingController.JKOFBKKPJAN(Vector3, Rod) => {(startFishingCoroutineAliasJkofMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: FishingController.MOJHEIHKEKO(Vector3, Rod) => {(startFishingCoroutineAliasMojhMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: FishingController.CreateBitesList() => {(createBitesListMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: FishingController.FMCEGPBACPC() => {(createBitesListAliasFmceMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: FishingController.IHIAGODKCLJ() => {(createBitesListAliasIhiaMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: FishingController.EGDOBIADPMA() => {(createBitesListAliasEgdoMethod != null ? "FOUND" : "MISSING")}");
             DebugLog($"Target resolution: FishingController.FinishFishing(bool) => {(finishFishingMethod != null ? "FOUND" : "MISSING")}");
             DebugLog($"Target resolution: FishingUI.LateUpdate() => {(lateUpdateMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: FishingHook.SetFake() => {(fishingHookSetFakeMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: FishingHook.SetBait() => {(fishingHookSetBaitMethod != null ? "FOUND" : "MISSING")}");
 
             try
             {
                 var startFishingGamePostfix = AccessTools.Method(typeof(Plugin), nameof(StartFishingGamePostfix), new[] { typeof(FishingUI) });
-                var startFishingCoroutinePrefix = AccessTools.Method(typeof(Plugin), nameof(StartFishingCoroutinePrefix), new[] { typeof(FishingController) });
+                var startFishingCoroutinePrefix = AccessTools.Method(typeof(Plugin), nameof(StartFishingAnyPrefix), new[] { typeof(FishingController), typeof(MethodBase) });
+                var createBitesListPostfix = AccessTools.Method(typeof(Plugin), nameof(CreateBitesListAnyPostfix), new[] { typeof(FishingController), typeof(MethodBase) });
                 var finishFishingPrefix = AccessTools.Method(typeof(Plugin), nameof(FinishFishingPrefix), new[] { typeof(FishingController) });
                 var lateUpdatePrefix = AccessTools.Method(typeof(Plugin), nameof(LateUpdatePrefix), new[] { typeof(FishingUI) });
+                var fishingHookSetFakePrefix = AccessTools.Method(typeof(Plugin), nameof(FishingHookSetFakePrefix), new[] { typeof(FishingHook) });
+                var fishingHookSetBaitPostfix = AccessTools.Method(typeof(Plugin), nameof(FishingHookSetBaitPostfix), new[] { typeof(MethodBase) });
 
                 var rodActionMethod = ResolveMethod(typeof(Rod), "Action", new[] { typeof(int), typeof(bool) });
                 var rodNbfbMethod = ResolveMethod(typeof(Rod), "NBFBPMNMBJG", new[] { typeof(int) });
@@ -142,8 +167,19 @@ namespace NepEasyFishing
 
                 PatchWithLogging("FishingUI.StartFishingGame(Rod)", startFishingGameMethod, startFishingGamePostfix, isPrefix: false);
                 PatchWithLogging("FishingController.StartFishingCoroutine(Vector3, Rod)", startFishingCoroutineMethod, startFishingCoroutinePrefix, isPrefix: true);
+                PatchWithLogging("FishingController.EHOFOMHDPFJ(Vector3, Rod)", startFishingCoroutineAliasEhofMethod, startFishingCoroutinePrefix, isPrefix: true);
+                PatchWithLogging("FishingController.JFMCNPDJLLI(Vector3, Rod)", startFishingCoroutineAliasJfmcMethod, startFishingCoroutinePrefix, isPrefix: true);
+                PatchWithLogging("FishingController.FFKPLBGGKLB(Vector3, Rod)", startFishingCoroutineAliasFfkpMethod, startFishingCoroutinePrefix, isPrefix: true);
+                PatchWithLogging("FishingController.JKOFBKKPJAN(Vector3, Rod)", startFishingCoroutineAliasJkofMethod, startFishingCoroutinePrefix, isPrefix: true);
+                PatchWithLogging("FishingController.MOJHEIHKEKO(Vector3, Rod)", startFishingCoroutineAliasMojhMethod, startFishingCoroutinePrefix, isPrefix: true);
+                PatchWithLogging("FishingController.CreateBitesList()", createBitesListMethod, createBitesListPostfix, isPrefix: false);
+                PatchWithLogging("FishingController.FMCEGPBACPC()", createBitesListAliasFmceMethod, createBitesListPostfix, isPrefix: false);
+                PatchWithLogging("FishingController.IHIAGODKCLJ()", createBitesListAliasIhiaMethod, createBitesListPostfix, isPrefix: false);
+                PatchWithLogging("FishingController.EGDOBIADPMA()", createBitesListAliasEgdoMethod, createBitesListPostfix, isPrefix: false);
                 PatchWithLogging("FishingController.FinishFishing(bool)", finishFishingMethod, finishFishingPrefix, isPrefix: true);
                 PatchWithLogging("FishingUI.LateUpdate()", lateUpdateMethod, lateUpdatePrefix, isPrefix: true);
+                PatchWithLogging("FishingHook.SetFake()", fishingHookSetFakeMethod, fishingHookSetFakePrefix, isPrefix: true);
+                PatchWithLogging("FishingHook.SetBait()", fishingHookSetBaitMethod, fishingHookSetBaitPostfix, isPrefix: false);
                 PatchWithLogging("Rod.Action(int, bool)", rodActionMethod, rodActionPostfix, isPrefix: false);
                 PatchWithLogging("Rod.NBFBPMNMBJG(int)", rodNbfbMethod, rodNbfbPostfix, isPrefix: false);
                 PatchWithLogging("Rod.OFAKNHNLKGI(int)", rodOfakMethod, rodOfakPostfix, isPrefix: false);
@@ -169,8 +205,19 @@ namespace NepEasyFishing
 
                 LogPatchInfo("FishingUI.StartFishingGame(Rod)", startFishingGameMethod);
                 LogPatchInfo("FishingController.StartFishingCoroutine(Vector3, Rod)", startFishingCoroutineMethod);
+                LogPatchInfo("FishingController.EHOFOMHDPFJ(Vector3, Rod)", startFishingCoroutineAliasEhofMethod);
+                LogPatchInfo("FishingController.JFMCNPDJLLI(Vector3, Rod)", startFishingCoroutineAliasJfmcMethod);
+                LogPatchInfo("FishingController.FFKPLBGGKLB(Vector3, Rod)", startFishingCoroutineAliasFfkpMethod);
+                LogPatchInfo("FishingController.JKOFBKKPJAN(Vector3, Rod)", startFishingCoroutineAliasJkofMethod);
+                LogPatchInfo("FishingController.MOJHEIHKEKO(Vector3, Rod)", startFishingCoroutineAliasMojhMethod);
+                LogPatchInfo("FishingController.CreateBitesList()", createBitesListMethod);
+                LogPatchInfo("FishingController.FMCEGPBACPC()", createBitesListAliasFmceMethod);
+                LogPatchInfo("FishingController.IHIAGODKCLJ()", createBitesListAliasIhiaMethod);
+                LogPatchInfo("FishingController.EGDOBIADPMA()", createBitesListAliasEgdoMethod);
                 LogPatchInfo("FishingController.FinishFishing(bool)", finishFishingMethod);
                 LogPatchInfo("FishingUI.LateUpdate()", lateUpdateMethod);
+                LogPatchInfo("FishingHook.SetFake()", fishingHookSetFakeMethod);
+                LogPatchInfo("FishingHook.SetBait()", fishingHookSetBaitMethod);
                 LogPatchInfo("Rod.Action(int, bool)", rodActionMethod);
                 LogPatchInfo("Rod.NBFBPMNMBJG(int)", rodNbfbMethod);
                 LogPatchInfo("Rod.OFAKNHNLKGI(int)", rodOfakMethod);
@@ -331,6 +378,11 @@ namespace NepEasyFishing
                 PollFishingUiFallbacks();
             }
 
+            if (_FishBarQuickBites?.Value == true)
+            {
+                PollQuickBitesFallback();
+            }
+
             if (_debugLogging?.Value == true && Input.GetKeyDown(KeyCode.F8))
             {
                 DumpFishingState("F8");
@@ -371,6 +423,11 @@ namespace NepEasyFishing
                 if (_InstantCatch?.Value == true || _FishBarQuickProgress?.Value == true || _FishBarNoDecrease?.Value == true)
                 {
                     PollFishingUiFallbacks();
+                }
+
+                if (_FishBarQuickBites?.Value == true)
+                {
+                    PollQuickBitesFallback();
                 }
 
                 if (_debugLogging?.Value == true && Input.GetKeyDown(KeyCode.F8))
@@ -699,9 +756,9 @@ namespace NepEasyFishing
 
         //////////////////////////////////////////////////////////////////
         ///  quicker Bites
-        static bool StartFishingCoroutinePrefix(FishingController __instance)
+        static bool StartFishingAnyPrefix(FishingController __instance, MethodBase __originalMethod)
         {
-            DebugLog("StartFishingCoroutinePrefix");
+            DebugLog($"StartFishingAnyPrefix source={__originalMethod?.Name}");
             if (_FishBarQuickBites.Value)
             {
                 var settings = FishingControllerSettings.GetValue(__instance) as FishingManagerSettings;
@@ -711,14 +768,145 @@ namespace NepEasyFishing
                     return true;
                 }
 
-                // One real bite shortly after starting. 
-                settings.timeBetweenBites = 0.1f; // default 1f
-                settings.totalTime = 1; // default 8
-                settings.bitesNum.x = 1; // default bitesNum Vector2Int(3, 5); 
-                settings.bitesNum.y = 1; // gets called as UnityEngine.Random.Range(this.bitesNum.x, this.bitesNum.y + 1);
+                settings.timeBetweenBites = 0.1f;
+                settings.totalTime = 1;
+                settings.bitesNum.x = 1;
+                settings.bitesNum.y = 1;
+                DebugLog($"QuickBites start settings applied from {__originalMethod?.Name}");
             }
 
             return true;
+        }
+
+        static void CreateBitesListAnyPostfix(FishingController __instance, MethodBase __originalMethod)
+        {
+            if (_FishBarQuickBites?.Value != true)
+                return;
+
+            NormalizeQuickBites(__instance, $"builder:{__originalMethod?.Name}", 0.1f);
+        }
+
+        static void NormalizeQuickBites(FishingController controller, string source, float delay)
+        {
+            if (controller == null)
+                return;
+
+            if (controller.bitesList == null)
+                controller.bitesList = new List<float>();
+
+            controller.bitesList.Clear();
+            controller.bitesList.Add(Time.time + delay);
+            DebugLog($"QuickBites normalized bitesList from {source}");
+        }
+
+        static void PollQuickBitesFallback()
+        {
+            for (int playerNum = 0; playerNum <= 4; playerNum++)
+            {
+                FishingController controller = null;
+                try
+                {
+                    controller = FishingController.Get(playerNum);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (controller?.bitesList == null || controller.bitesList.Count == 0)
+                    continue;
+
+                var shouldNormalize = controller.bitesList.Count > 1;
+                if (!shouldNormalize && controller.bitesList.Count == 1)
+                    shouldNormalize = controller.bitesList[0] > Time.time + 0.25f;
+
+                if (shouldNormalize)
+                    NormalizeQuickBites(controller, $"poll:p{playerNum}", 0.1f);
+            }
+        }
+
+        static bool FishingHookSetFakePrefix(FishingHook __instance)
+        {
+            if (_FishBarQuickBites?.Value != true)
+                return true;
+
+            var controller = FindControllerForHook(__instance);
+            if (controller == null)
+            {
+                DebugLog("QuickBites intercepted SetFake but controller not found");
+                return true;
+            }
+
+            if (controller.bitesList == null)
+                controller.bitesList = new List<float>();
+
+            controller.bitesList.Clear();
+            controller.bitesList.Add(Time.time);
+            controller.bitesList.Add(Time.time + 0.05f);
+            DebugLog("QuickBites intercepted SetFake");
+            return false;
+        }
+
+        static void FishingHookSetBaitPostfix(MethodBase __originalMethod)
+        {
+            if (_FishBarQuickBites?.Value != true)
+                return;
+
+            DebugLog("QuickBites observed SetBait");
+        }
+
+        static FishingController FindControllerForHook(FishingHook hook)
+        {
+            if (hook == null)
+                return null;
+
+            try
+            {
+                var hookPlayerObj = Traverse.Create(hook).Field("playerNum")?.GetValue();
+                if (hookPlayerObj is int hookPlayerNum)
+                {
+                    try
+                    {
+                        var byPlayer = FishingController.Get(hookPlayerNum);
+                        if (byPlayer != null)
+                            return byPlayer;
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            for (int playerNum = 0; playerNum <= 4; playerNum++)
+            {
+                FishingController controller = null;
+                try
+                {
+                    controller = FishingController.Get(playerNum);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (controller == null)
+                    continue;
+
+                try
+                {
+                    var controllerHook = Traverse.Create(controller).Field("fishingHook")?.GetValue() as FishingHook;
+                    if (ReferenceEquals(controllerHook, hook))
+                        return controller;
+                }
+                catch
+                {
+                }
+            }
+
+            return null;
         }
 
 
