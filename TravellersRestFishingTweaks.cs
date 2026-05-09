@@ -14,7 +14,7 @@ using UnityEngine;
 using UnityEngine.UI;
 
 
-namespace NepEasyFishing
+namespace TravellersRestFishingTweaks
 {
     [BepInPlugin(PluginInfo.PLUGIN_GUID, PluginInfo.PLUGIN_NAME, PluginInfo.PLUGIN_VERSION)]
     public class Plugin : BaseUnityPlugin
@@ -33,7 +33,6 @@ namespace NepEasyFishing
         private static ConfigEntry<bool> _dontUseBait;
         private static ConfigEntry<bool> _autoFish;
         private static ConfigEntry<bool> _autoReel;
-        private static ConfigEntry<int> _autoFishPlayer;
         private static ConfigEntry<float> _autoFishRecastDelay;
         private static ConfigEntry<bool> _removeRecastDelay;
         private static bool _loggedFishingUiActive;
@@ -90,8 +89,9 @@ namespace NepEasyFishing
 
         private const int MinSafePlayerNum = 1;
         private const int MaxSafePlayerNum = 2;
+        private const int AutoFishPlayer = 1;
 
-        private const string BuildProofStamp = "20260510-045610";
+        private const string BuildProofStamp = "20260510-legacy-config-cleanup";
 
         private const float MinAutoRecastDelay = 1.25f;
         private const float AutoRecastPostFinishSettle = 1.25f;
@@ -115,30 +115,34 @@ namespace NepEasyFishing
         public Plugin()
         {
             // bind to config settings
-            _FishBarQuickProgress = Config.Bind("General", "Quick Progress", true,
-                "Fishing minigame progress fills very quickly when fish is clicked on");
-            _FishBarQuickProgressAmount = Config.Bind("General", "Quick Progress Amount", 0.15f,
-                "Amount added to the fishing minigame progress bar per second while Quick Progress is enabled");
-            _FishBarQuickProgressOnMiss = Config.Bind("General", "Quick Progress On Miss", false,
-                "If true, Quick Progress still increases while holding input even when the fish is outside the bar/box");
-            _FishBarNoDecrease = Config.Bind("General", "No Bar Decrease", true,
-                "Fishing minigame progress does not decrease");
-            _FishBarQuickBites =
-                Config.Bind("General", "Quick Bites", true, "Reduced time before bites, no fake bites");
-            _debugLogging = Config.Bind("Debug", "Debug Logging", false, "Logs additional information to console");
+            _FishBarQuickBites = Config.Bind("General", "Quick Bites", true,
+                "Reduces the wait before a fish bites and removes fake bites. Default: true.");
             _InstantCatch = Config.Bind("General", "Instant Catch", true,
-                "Instantly catch fish once hooked instead of starting the minigame");
-            _dontUseBait = Config.Bind("General", "Dont use bait", false, "Don't consume bait when fishing");
-            _autoFish = Config.Bind("General", "Auto Recast Rod", false,
-                "Automatically recasts the selected fishing rod after Auto Reel / Instant Catch finishes a catch. Manually cast once with the rod selected to start the loop. To stop the loop, change the equipped action-bar slot away from the fishing rod (for example, switch from the rod slot to a watering can slot).");
+                "Instantly completes the catch after a real hook, skipping the fishing minigame. Default: true.");
+
+            _FishBarQuickProgress = Config.Bind("General", "Quick Progress", true,
+                "Makes fishing minigame progress fill faster while you hold the fishing input. Default: true.");
+            _FishBarQuickProgressAmount = Config.Bind("General", "Quick Progress Amount", 0.15f,
+                "Progress added per second while Quick Progress is enabled. Values below 0 are treated as 0. Default: 0.15.");
+            _FishBarQuickProgressOnMiss = Config.Bind("General", "Quick Progress On Miss", false,
+                "If enabled, Quick Progress still increases while you hold the fishing input even when the fish is outside the target box. Default: false.");
+            _FishBarNoDecrease = Config.Bind("General", "No Bar Decrease", true,
+                "Prevents fishing minigame progress from decreasing over time. Default: true.");
+
+            _dontUseBait = Config.Bind("General", "Dont use bait", false,
+                "Prevents bait from being consumed while fishing. Default: false.");
+
             _autoReel = Config.Bind("General", "Auto Reel", false,
-                "Automatically reels in when a real bite occurs. With Instant Catch enabled, this immediately catches the fish.");
-            _autoFishPlayer = Config.Bind("General", "Auto Recast Rod Player", 1,
-                "Player number Auto Recast Rod controls. Use 1 for the local single-player character");
+                "Automatically reels in when a real bite occurs. If Instant Catch is enabled, the fish is caught immediately. Default: false.");
+            _autoFish = Config.Bind("General", "Auto Recast Rod", false,
+                "Automatically recasts the selected fishing rod after a catch finishes. Cast manually once with the rod selected to start the session. To stop it, switch away from the fishing rod on the action bar. When enabled, the mod also handles reeling so the recast loop can continue. Default: false.");
             _autoFishRecastDelay = Config.Bind("General", "Auto Recast Rod Delay", 1.25f,
-                "Seconds Auto Recast Rod waits between safe recast attempts");
+                "Seconds Auto Recast Rod waits between recast attempts. Values below 1.25 are treated as 1.25. Default: 1.25.");
             _removeRecastDelay = Config.Bind("General", "Remove Recast Delay", false,
-                "Removes the post-catch popup/hook delay so you can cast again sooner after rewards are granted.");
+                "Removes the extra post-catch delay so you can cast again sooner after rewards are granted. Default: false.");
+
+            _debugLogging = Config.Bind("Debug", "Debug Logging", false,
+                "Writes additional diagnostic information to the BepInEx log and console. Default: false.");
         }
 
 
@@ -146,8 +150,9 @@ namespace NepEasyFishing
         {
             // Plugin startup logic
             Log = Logger;
-            Logger.LogInfo($"NepEasyFishing: Plugin {PluginInfo.PLUGIN_GUID} is loaded!");
+            Logger.LogInfo($"TravellersRestFishingTweaks: Plugin {PluginInfo.PLUGIN_GUID} is loaded!");
             LogBuildProof("Awake");
+            RemoveLegacyAutoRecastPlayerConfig();
             LogConfigProof();
             InstallTickerFallback();
 
@@ -636,10 +641,10 @@ namespace NepEasyFishing
         {
             try
             {
-                var tickerObject = new GameObject("NepEasyFishing.UpdateTicker");
+                var tickerObject = new GameObject("TravellersRestFishingTweaks.UpdateTicker");
                 UnityEngine.Object.DontDestroyOnLoad(tickerObject);
                 tickerObject.hideFlags = HideFlags.HideAndDontSave;
-                tickerObject.AddComponent<EasyFishingTicker>();
+                tickerObject.AddComponent<TravellersRestFishingTweaksTicker>();
                 Log.LogInfo($"EASYFISHING_TICKER_INSTALLED stamp={BuildProofStamp}");
             }
             catch (Exception ex)
@@ -648,7 +653,7 @@ namespace NepEasyFishing
             }
         }
 
-        private class EasyFishingTicker : MonoBehaviour
+        private class TravellersRestFishingTweaksTicker : MonoBehaviour
         {
             private bool _loggedTickerUpdateProof;
 
@@ -765,7 +770,7 @@ namespace NepEasyFishing
 
                 if (reflectedSlider == null)
                 {
-                    LogThrottledDiagnostic($"NepEasyFishing: easy minigame fallback player {playerNum}: FishingUI progress slider is null");
+                    LogThrottledDiagnostic($"TravellersRestFishingTweaks: easy minigame fallback player {playerNum}: FishingUI progress slider is null");
                     return;
                 }
 
@@ -797,7 +802,7 @@ namespace NepEasyFishing
             }
             catch (Exception ex)
             {
-                LogThrottledDiagnostic($"NepEasyFishing: easy minigame fallback player {playerNum} failed: {ex.GetType().Name}: {ex.Message}");
+                LogThrottledDiagnostic($"TravellersRestFishingTweaks: easy minigame fallback player {playerNum} failed: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
@@ -852,7 +857,7 @@ namespace NepEasyFishing
             }
             catch (Exception ex)
             {
-                LogThrottledDiagnostic($"NepEasyFishing: failed to read fish-in-box state: {ex.GetType().Name}: {ex.Message}");
+                LogThrottledDiagnostic($"TravellersRestFishingTweaks: failed to read fish-in-box state: {ex.GetType().Name}: {ex.Message}");
                 return false;
             }
         }
@@ -870,7 +875,7 @@ namespace NepEasyFishing
 
                 if (reflectedSlider == null)
                 {
-                    LogThrottledDiagnostic($"NepEasyFishing: {source}: FishingUI progress slider is null");
+                    LogThrottledDiagnostic($"TravellersRestFishingTweaks: {source}: FishingUI progress slider is null");
                     return;
                 }
 
@@ -878,7 +883,7 @@ namespace NepEasyFishing
             }
             catch (Exception ex)
             {
-                LogThrottledDiagnostic($"NepEasyFishing: {source}: failed to force FishingUI progress: {ex.GetType().Name}: {ex.Message}");
+                LogThrottledDiagnostic($"TravellersRestFishingTweaks: {source}: failed to force FishingUI progress: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
@@ -896,7 +901,7 @@ namespace NepEasyFishing
 
         private static void DumpFishingState(string reason)
         {
-            Log.LogInfo($"NepEasyFishing: Debug dump requested ({reason})");
+            Log.LogInfo($"TravellersRestFishingTweaks: Debug dump requested ({reason})");
 
             for (int playerNum = MinSafePlayerNum; playerNum <= MaxSafePlayerNum; playerNum++)
             {
@@ -915,7 +920,7 @@ namespace NepEasyFishing
                     var fishing = SafeMemberReadAsString(controller, "fishing");
                     var baitSelected = SafeMemberReadAsString(controller, "baitSelected");
 
-                    Log.LogInfo($"NepEasyFishing: Debug dump player={playerNum}, fishingUiActive={uiActive}, progress={progress}, controllerFishing={fishing}, baitSelected={baitSelected}");
+                    Log.LogInfo($"TravellersRestFishingTweaks: Debug dump player={playerNum}, fishingUiActive={uiActive}, progress={progress}, controllerFishing={fishing}, baitSelected={baitSelected}");
                 }
                 catch (Exception ex)
                 {
@@ -958,7 +963,7 @@ namespace NepEasyFishing
 
             _lastAutoFishPollFrame = Time.frameCount;
 
-            var playerNum = Mathf.Clamp(_autoFishPlayer?.Value ?? 1, MinSafePlayerNum, MaxSafePlayerNum);
+            const int playerNum = AutoFishPlayer;
             var now = Time.realtimeSinceStartup;
 
             if (!_loggedAutoFishActive)
@@ -998,14 +1003,14 @@ namespace NepEasyFishing
                 if (useObject == null)
                 {
                     SetAutoFishCooldown(playerNum, 1.0f);
-                    LogThrottledDiagnostic($"NepEasyFishing: Auto Recast Rod player={playerNum}: UseObject missing");
+                    LogThrottledDiagnostic($"TravellersRestFishingTweaks: Auto Recast Rod player={playerNum}: UseObject missing");
                     return;
                 }
 
                 if (!CanSelectedRodCastNow(playerNum, out var castReason))
                 {
                     SetAutoFishCooldown(playerNum, AutoRecastFailedAttemptCooldown);
-                    LogThrottledDiagnostic($"NepEasyFishing: Auto Recast Rod waiting player={playerNum} reason={castReason}");
+                    LogThrottledDiagnostic($"TravellersRestFishingTweaks: Auto Recast Rod waiting player={playerNum} reason={castReason}");
                     return;
                 }
 
@@ -1023,7 +1028,7 @@ namespace NepEasyFishing
             catch (Exception ex)
             {
                 SetAutoFishCooldown(playerNum, 1.0f);
-                LogThrottledDiagnostic($"NepEasyFishing: Auto Recast Rod cast failed player={playerNum}: {ex.GetType().Name}: {ex.Message}");
+                LogThrottledDiagnostic($"TravellersRestFishingTweaks: Auto Recast Rod cast failed player={playerNum}: {ex.GetType().Name}: {ex.Message}");
                 return;
             }
 
@@ -1039,7 +1044,7 @@ namespace NepEasyFishing
             {
                 SetAutoFishCooldown(playerNum, AutoRecastFailedAttemptCooldown);
                 LogAutoRecastAttempt(playerNum, "cast_rejected");
-                LogThrottledDiagnostic($"NepEasyFishing: Auto Recast Rod cast attempt returned false player={playerNum}");
+                LogThrottledDiagnostic($"TravellersRestFishingTweaks: Auto Recast Rod cast attempt returned false player={playerNum}");
             }
         }
 
@@ -1425,7 +1430,7 @@ namespace NepEasyFishing
         {
             if (_debugLogging?.Value != true)
             {
-                LogThrottledDiagnostic($"NepEasyFishing: Auto Recast Rod waiting player={playerNum} reason={reason}");
+                LogThrottledDiagnostic($"TravellersRestFishingTweaks: Auto Recast Rod waiting player={playerNum} reason={reason}");
                 return;
             }
 
@@ -2156,7 +2161,7 @@ namespace NepEasyFishing
                     $"DontUseBait={_dontUseBait?.Value} " +
                     $"AutoRecastRod={_autoFish?.Value} " +
                     $"AutoReel={_autoReel?.Value} " +
-                    $"AutoRecastRodPlayer={_autoFishPlayer?.Value} " +
+                    $"AutoRecastRodPlayer={AutoFishPlayer} " +
                     $"AutoRecastRodDelay={_autoFishRecastDelay?.Value} " +
                     $"RemoveRecastDelay={_removeRecastDelay?.Value} " +
                     $"DebugLogging={_debugLogging?.Value}");
@@ -2164,6 +2169,45 @@ namespace NepEasyFishing
             catch (Exception ex)
             {
                 Log.LogError($"EASYFISHING_CONFIG_PROOF_FAILED: {ex}");
+            }
+        }
+
+        private void RemoveLegacyAutoRecastPlayerConfig()
+        {
+            try
+            {
+                var configPath = Config.ConfigFilePath;
+
+                if (string.IsNullOrEmpty(configPath) || !File.Exists(configPath))
+                    return;
+
+                var lines = File.ReadAllLines(configPath).ToList();
+                var entryIndex = lines.FindIndex(line => line.TrimStart().StartsWith("Auto Recast Rod Player", StringComparison.Ordinal));
+
+                if (entryIndex < 0)
+                    return;
+
+                var startIndex = entryIndex;
+                while (startIndex > 0)
+                {
+                    var previousLine = lines[startIndex - 1];
+
+                    if (previousLine.StartsWith("#", StringComparison.Ordinal) || string.IsNullOrWhiteSpace(previousLine))
+                    {
+                        startIndex--;
+                        continue;
+                    }
+
+                    break;
+                }
+
+                lines.RemoveRange(startIndex, entryIndex - startIndex + 1);
+                File.WriteAllLines(configPath, lines);
+                Log.LogInfo("Removed legacy config entry from file: General/Auto Recast Rod Player");
+            }
+            catch (Exception ex)
+            {
+                Log.LogWarning($"Failed to remove legacy Auto Recast Rod Player config entry: {ex}");
             }
         }
 
@@ -2183,7 +2227,7 @@ namespace NepEasyFishing
         public static void DebugLog(string message)
         {
             // Log a message to console only if debug is enabled in console
-            if (_debugLogging.Value) Log.LogInfo($"NepEasyFishing: Debug: {message}");
+            if (_debugLogging.Value) Log.LogInfo($"TravellersRestFishingTweaks: Debug: {message}");
         }
 
         //////////////////////////////////////////////////////////////////
@@ -2259,7 +2303,7 @@ namespace NepEasyFishing
             }
             catch (Exception ex)
             {
-                LogThrottledDiagnostic($"NepEasyFishing: {source}: failed closing FishingUI: {ex.GetType().Name}: {ex.Message}");
+                LogThrottledDiagnostic($"TravellersRestFishingTweaks: {source}: failed closing FishingUI: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
