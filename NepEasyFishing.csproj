@@ -23,9 +23,8 @@
 
 	<PropertyGroup>
 		<GameInstallDirectory>E:\SteamLibrary\steamapps\common\Travellers Rest</GameInstallDirectory>
-		<GameFilesPath>$(GameInstallDirectory)\TravellersRest_Data\Managed</GameFilesPath>
-		<BepInExPath>$(GameInstallDirectory)\BepInEx\plugins</BepInExPath>
-		<DeployTimestamp>20260510-045610</DeployTimestamp>
+		<GameFilesPath>$(GameInstallDirectory)\Windows\TravellersRest_Data\Managed</GameFilesPath>
+		<BepInExPath>$(GameInstallDirectory)\Windows\BepInEx\plugins</BepInExPath>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -41,11 +40,6 @@
 	</ItemGroup>
 
 	<Target AfterTargets="Build" Name="CopyToPluginDir">
-		<Delete Files="@(OldEasyFishingPluginDlls)" />
-		<Copy SourceFiles="$(OutputPath)$(AssemblyName).dll" DestinationFiles="$(BepInExPath)\$(AssemblyName)-$(DeployTimestamp).dll" />
+		<Copy SourceFiles="$(OutputPath)$(AssemblyName).dll" DestinationFolder="$(BepInExPath)" />
 	</Target>
-
-	<ItemGroup>
-		<OldEasyFishingPluginDlls Include="$(BepInExPath)\$(AssemblyName)*.dll" />
-	</ItemGroup>
 </Project>
