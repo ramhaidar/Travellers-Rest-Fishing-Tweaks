@@ -23,6 +23,7 @@ namespace NepEasyFishing
         internal static ManualLogSource Log;
 
         private static ConfigEntry<bool> _FishBarQuickProgress;
+        private static ConfigEntry<float> _FishBarQuickProgressAmount;
         private static ConfigEntry<bool> _FishBarNoDecrease;
         private static ConfigEntry<bool> _FishBarQuickBites;
         private static ConfigEntry<bool> _InstantCatch;
@@ -30,11 +31,13 @@ namespace NepEasyFishing
         private static ConfigEntry<bool> _dontUseBait;
         private static bool _loggedFishingUiActive;
         private static bool _loggedPollingFallbackActive;
+        private static bool _loggedEasyMinigameFallbackActive;
         private static bool _loggedUpdateProof;
         private static float _nextPollingDiagnosticsTime;
         private static int _uiProbeLogFramesRemaining = 600;
+        private static readonly float[] _maxFishingProgressByPlayer = new float[5];
 
-        private const string BuildProofStamp = "20260509-135809";
+        private const string BuildProofStamp = "20260509-214713";
 
         private static readonly FieldInfo FishingControllerSettings =
             AccessTools.Field(typeof(FishingController), "settings");
@@ -48,6 +51,8 @@ namespace NepEasyFishing
             // bind to config settings
             _FishBarQuickProgress = Config.Bind("General", "Quick Progress", true,
                 "Fishing minigame progress fills very quickly when fish is clicked on");
+            _FishBarQuickProgressAmount = Config.Bind("General", "Quick Progress Amount", 0.15f,
+                "Amount added to the fishing minigame progress bar per second while Quick Progress is enabled");
             _FishBarNoDecrease = Config.Bind("General", "No Bar Decrease", true,
                 "Fishing minigame progress does not decrease");
             _FishBarQuickBites =
@@ -315,9 +320,9 @@ namespace NepEasyFishing
 
             // Harmony-independent fallback. If the game reaches the fishing UI through a path
             // that our patches do not observe, the BepInEx plugin Update still runs every frame.
-            if (_InstantCatch?.Value == true)
+            if (_InstantCatch?.Value == true || _FishBarQuickProgress?.Value == true || _FishBarNoDecrease?.Value == true)
             {
-                PollFishingUiInstantCatch();
+                PollFishingUiFallbacks();
             }
 
             if (_debugLogging?.Value == true && Input.GetKeyDown(KeyCode.F8))
@@ -357,9 +362,9 @@ namespace NepEasyFishing
                         $"enabled={enabled} activeSelf={gameObject.activeSelf} activeInHierarchy={gameObject.activeInHierarchy}");
                 }
 
-                if (_InstantCatch?.Value == true)
+                if (_InstantCatch?.Value == true || _FishBarQuickProgress?.Value == true || _FishBarNoDecrease?.Value == true)
                 {
-                    PollFishingUiInstantCatch();
+                    PollFishingUiFallbacks();
                 }
 
                 if (_debugLogging?.Value == true && Input.GetKeyDown(KeyCode.F8))
@@ -369,7 +374,7 @@ namespace NepEasyFishing
             }
         }
 
-        private static void PollFishingUiInstantCatch()
+        private static void PollFishingUiFallbacks()
         {
             bool shouldLogProbe = _uiProbeLogFramesRemaining > 0 && Time.frameCount % 60 == 0;
             if (shouldLogProbe)
@@ -400,16 +405,99 @@ namespace NepEasyFishing
                 }
 
                 if (!active)
-                    continue;
-
-                if (!_loggedPollingFallbackActive)
                 {
-                    _loggedPollingFallbackActive = true;
-                    Log.LogInfo($"EASYFISHING_UI_ACTIVE stamp={BuildProofStamp} player={playerNum}; forcing progress to 1.0");
+                    if (playerNum >= 0 && playerNum < _maxFishingProgressByPlayer.Length)
+                        _maxFishingProgressByPlayer[playerNum] = 0f;
+                    continue;
                 }
 
-                ForceFishingProgressComplete(fishingUi, $"polling fallback player {playerNum}");
+                if (_InstantCatch?.Value == true)
+                {
+                    if (!_loggedPollingFallbackActive)
+                    {
+                        _loggedPollingFallbackActive = true;
+                        Log.LogInfo($"EASYFISHING_UI_ACTIVE stamp={BuildProofStamp} player={playerNum}; forcing progress to 1.0");
+                    }
+
+                    ForceFishingProgressComplete(fishingUi, $"polling fallback player {playerNum}");
+                    continue;
+                }
+
+                ApplyEasyMinigameFallback(fishingUi, playerNum);
             }
+        }
+
+        private static void ApplyEasyMinigameFallback(FishingUI fishingUi, int playerNum)
+        {
+            try
+            {
+                Slider reflectedSlider = Traverse.Create(fishingUi)
+                    .Field("progress")
+                    .GetValue<Slider>();
+
+                if (reflectedSlider == null)
+                {
+                    LogThrottledDiagnostic($"NepEasyFishing: easy minigame fallback player {playerNum}: FishingUI progress slider is null");
+                    return;
+                }
+
+                var before = reflectedSlider.value;
+
+                if (playerNum >= 0 && playerNum < _maxFishingProgressByPlayer.Length)
+                {
+                    if (_FishBarNoDecrease?.Value == true && before < _maxFishingProgressByPlayer[playerNum])
+                        reflectedSlider.value = _maxFishingProgressByPlayer[playerNum];
+                }
+
+                if (_FishBarQuickProgress?.Value == true)
+                {
+                    if (IsFishingMinigameInputActive(fishingUi, playerNum))
+                        reflectedSlider.value = Mathf.Clamp01(Mathf.Max(reflectedSlider.value, before + (Mathf.Max(0f, _FishBarQuickProgressAmount?.Value ?? 0.15f) * Time.deltaTime)));
+                }
+
+                if (playerNum >= 0 && playerNum < _maxFishingProgressByPlayer.Length)
+                    _maxFishingProgressByPlayer[playerNum] = Mathf.Max(_maxFishingProgressByPlayer[playerNum], reflectedSlider.value);
+
+                if (!_loggedEasyMinigameFallbackActive)
+                {
+                    _loggedEasyMinigameFallbackActive = true;
+                    Log.LogInfo(
+                        $"EASYFISHING_MINIGAME_FALLBACK_ACTIVE stamp={BuildProofStamp} player={playerNum} " +
+                        $"QuickProgress={_FishBarQuickProgress?.Value} QuickProgressAmount={_FishBarQuickProgressAmount?.Value} NoBarDecrease={_FishBarNoDecrease?.Value} " +
+                        $"progressBefore={before:0.000} progressAfter={reflectedSlider.value:0.000}");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogThrottledDiagnostic($"NepEasyFishing: easy minigame fallback player {playerNum} failed: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        private static bool IsFishingMinigameInputActive(FishingUI fishingUi, int playerNum)
+        {
+            if (fishingUi == null)
+                return false;
+
+            if (fishingUi.content == null || !fishingUi.content.activeInHierarchy)
+                return false;
+
+            if (!fishingUi.IsOpen())
+                return false;
+
+            if (fishingUi.fish == null)
+                return false;
+
+            if (playerNum <= 0)
+                playerNum = fishingUi.JIIGOACEIKL;
+
+            PlayerInputs inputs = PlayerInputs.GetPlayer(playerNum);
+            if (inputs == null)
+                return false;
+
+            if (!PlayerInputs.IsGamepadActive(playerNum) && inputs.GetButton("Start"))
+                return true;
+
+            return inputs.GetButton("UIInteract") || inputs.GetButton("UIAddRemove");
         }
 
         private static void ForceFishingProgressComplete(FishingUI fishingUi, string source)
@@ -506,6 +594,7 @@ namespace NepEasyFishing
                 Log.LogInfo(
                     $"EASYFISHING_CONFIG_PROOF stamp={BuildProofStamp} " +
                     $"QuickProgress={_FishBarQuickProgress?.Value} " +
+                    $"QuickProgressAmount={_FishBarQuickProgressAmount?.Value} " +
                     $"NoBarDecrease={_FishBarNoDecrease?.Value} " +
                     $"QuickBites={_FishBarQuickBites?.Value} " +
                     $"InstantCatch={_InstantCatch?.Value} " +
