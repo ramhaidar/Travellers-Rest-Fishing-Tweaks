@@ -37,8 +37,29 @@ namespace NepEasyFishing
         private static float _nextPollingDiagnosticsTime;
         private static int _uiProbeLogFramesRemaining = 600;
         private static readonly float[] _maxFishingProgressByPlayer = new float[5];
+        private static readonly float[] _baitProtectionUntilByPlayer = new float[8];
+        private static readonly int[] _protectedBaitIdByPlayer = new int[8];
+        private static readonly int[] _protectedBaitBaselineByPlayer = new int[8];
+        private static readonly int[] BaitIds = { 1444, 1445, 1446, 1447, 1448 };
+        private static readonly int[,] _lastBaitCountsByPlayer = new int[5, 5];
+        private static readonly bool[] _baitMonitorInitializedByPlayer = new bool[5];
+        private static readonly float[] _rodSelectedUntilByPlayer = new float[5];
+        private static readonly float[] _fishingContextUntilByPlayer = new float[5];
+        private static readonly int[] _lastSelectedBaitIdByPlayer = new int[5];
+        private static readonly float[] _lastSelectedBaitSeenAtByPlayer = new float[5];
+        private static int _lastDontUseBaitMonitorFrame = -1;
+        private static bool _isRefundingBait;
+        private static readonly HashSet<int> _baitItemIds = new HashSet<int> { 1444, 1445, 1446, 1447, 1448 };
+        private static readonly Dictionary<int, string> _baitNamesByItemId = new Dictionary<int, string>
+        {
+            { 1444, "Worm" },
+            { 1445, "Larva" },
+            { 1446, "Meat Bait" },
+            { 1447, "Seafood Bait" },
+            { 1448, "Lure" }
+        };
 
-        private const string BuildProofStamp = "20260509-224500";
+        private const string BuildProofStamp = "20260510-003000";
 
         private static readonly FieldInfo FishingControllerSettings =
             AccessTools.Field(typeof(FishingController), "settings");
@@ -105,9 +126,19 @@ namespace NepEasyFishing
             var createBitesListAliasIhiaMethod = ResolveMethod(typeof(FishingController), "IHIAGODKCLJ", Type.EmptyTypes);
             var createBitesListAliasEgdoMethod = ResolveMethod(typeof(FishingController), "EGDOBIADPMA", Type.EmptyTypes);
             var finishFishingMethod = AccessTools.Method(typeof(FishingController), nameof(FishingController.FinishFishing), new[] { typeof(bool) });
+            var finishFishingAliasMoeckMethod = ResolveMethod(typeof(FishingController), "MOECKIFAFII", new[] { typeof(bool) });
+            var finishFishingAliasIaacMethod = ResolveMethod(typeof(FishingController), "IAACFAPNOFI", new[] { typeof(bool) });
+            var finishFishingAliasHjpiMethod = ResolveMethod(typeof(FishingController), "HJPINMGNLJB", new[] { typeof(bool) });
             var lateUpdateMethod = AccessTools.Method(typeof(FishingUI), "LateUpdate", Type.EmptyTypes);
             var fishingHookSetFakeMethod = ResolveMethod(typeof(FishingHook), "SetFake", Type.EmptyTypes);
             var fishingHookSetBaitMethod = ResolveMethod(typeof(FishingHook), "SetBait", Type.EmptyTypes);
+            var playerInventoryRemoveItemOneArgMethod = ResolveMethod(typeof(PlayerInventory), "RemoveItem", new[] { typeof(Item) });
+            var playerInventoryRemoveItemMethod = ResolveMethod(typeof(PlayerInventory), "RemoveItem", new[] { typeof(Item), typeof(bool) });
+            var playerInventoryRemoveItemAliasMethod = ResolveMethod(typeof(PlayerInventory), "OOEJMKIAPLC", new[] { typeof(Item), typeof(bool) });
+            var containerRemoveItemMethod = ResolveMethod(typeof(Container), "RemoveItem", new[] { typeof(Item), typeof(bool) });
+            var slotConsumeOneMethod = ResolveMethod(typeof(Slot), "MEODNPFJDMH", new[] { typeof(bool) });
+            var slotConsumeOneAliasMethod = ResolveMethod(typeof(Slot), "MBCIJPPOGJG", new[] { typeof(bool) });
+            var slotSetStackMethod = ResolveMethod(typeof(Slot), "BGJPNGLONLP", new[] { typeof(int), typeof(bool), typeof(bool) });
 
             DebugLog($"Target resolution: FishingUI.StartFishingGame(Rod) => {(startFishingGameMethod != null ? "FOUND" : "MISSING")}");
             DebugLog($"Target resolution: FishingController.StartFishingCoroutine(Vector3, Rod) => {(startFishingCoroutineMethod != null ? "FOUND" : "MISSING")}");
@@ -121,9 +152,19 @@ namespace NepEasyFishing
             DebugLog($"Target resolution: FishingController.IHIAGODKCLJ() => {(createBitesListAliasIhiaMethod != null ? "FOUND" : "MISSING")}");
             DebugLog($"Target resolution: FishingController.EGDOBIADPMA() => {(createBitesListAliasEgdoMethod != null ? "FOUND" : "MISSING")}");
             DebugLog($"Target resolution: FishingController.FinishFishing(bool) => {(finishFishingMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: FishingController.MOECKIFAFII(bool) => {(finishFishingAliasMoeckMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: FishingController.IAACFAPNOFI(bool) => {(finishFishingAliasIaacMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: FishingController.HJPINMGNLJB(bool) => {(finishFishingAliasHjpiMethod != null ? "FOUND" : "MISSING")}");
             DebugLog($"Target resolution: FishingUI.LateUpdate() => {(lateUpdateMethod != null ? "FOUND" : "MISSING")}");
             DebugLog($"Target resolution: FishingHook.SetFake() => {(fishingHookSetFakeMethod != null ? "FOUND" : "MISSING")}");
             DebugLog($"Target resolution: FishingHook.SetBait() => {(fishingHookSetBaitMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: PlayerInventory.RemoveItem(Item) => {(playerInventoryRemoveItemOneArgMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: PlayerInventory.RemoveItem(Item, bool) => {(playerInventoryRemoveItemMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: PlayerInventory.OOEJMKIAPLC(Item, bool) => {(playerInventoryRemoveItemAliasMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: Container.RemoveItem(Item, bool) => {(containerRemoveItemMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: Slot.MEODNPFJDMH(bool) => {(slotConsumeOneMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: Slot.MBCIJPPOGJG(bool) => {(slotConsumeOneAliasMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: Slot.BGJPNGLONLP(int,bool,bool) => {(slotSetStackMethod != null ? "FOUND" : "MISSING")}");
 
             try
             {
@@ -131,11 +172,21 @@ namespace NepEasyFishing
                 var startFishingCoroutinePrefix = AccessTools.Method(typeof(Plugin), nameof(StartFishingAnyPrefix), new[] { typeof(FishingController), typeof(MethodBase) });
                 var createBitesListPostfix = AccessTools.Method(typeof(Plugin), nameof(CreateBitesListAnyPostfix), new[] { typeof(FishingController), typeof(MethodBase) });
                 var finishFishingPrefix = AccessTools.Method(typeof(Plugin), nameof(FinishFishingPrefix), new[] { typeof(FishingController) });
+                var playerInventoryRemoveItemItemPrefix = AccessTools.Method(typeof(Plugin), nameof(PlayerInventoryRemoveItemItemPrefix), new[] { typeof(PlayerInventory), typeof(Item), typeof(Slot).MakeByRefType(), typeof(MethodBase) });
+                var playerInventoryRemoveItemItemBoolPrefix = AccessTools.Method(typeof(Plugin), nameof(PlayerInventoryRemoveItemItemBoolPrefix), new[] { typeof(PlayerInventory), typeof(Item), typeof(bool), typeof(Slot).MakeByRefType(), typeof(MethodBase) });
+                var containerRemoveItemPrefix = AccessTools.Method(typeof(Plugin), nameof(ContainerRemoveItemPrefix), new[] { typeof(Container), typeof(Item), typeof(bool), typeof(Slot).MakeByRefType(), typeof(MethodBase) });
+                var slotConsumeOnePrefix = AccessTools.Method(typeof(Plugin), nameof(SlotConsumeOnePrefix), new[] { typeof(Slot), typeof(bool), typeof(bool).MakeByRefType(), typeof(MethodBase) });
+                var slotSetStackPrefix = AccessTools.Method(typeof(Plugin), nameof(SlotSetStackPrefix), new[] { typeof(Slot), typeof(int).MakeByRefType(), typeof(bool), typeof(bool), typeof(MethodBase) });
                 var lateUpdatePrefix = AccessTools.Method(typeof(Plugin), nameof(LateUpdatePrefix), new[] { typeof(FishingUI) });
                 var fishingHookSetFakePrefix = AccessTools.Method(typeof(Plugin), nameof(FishingHookSetFakePrefix), new[] { typeof(FishingHook) });
                 var fishingHookSetBaitPostfix = AccessTools.Method(typeof(Plugin), nameof(FishingHookSetBaitPostfix), new[] { typeof(MethodBase) });
 
                 var rodActionMethod = ResolveMethod(typeof(Rod), "Action", new[] { typeof(int), typeof(bool) });
+                var rodActionAliasEhhcMethod = ResolveMethod(typeof(Rod), "EHHCPOCLAJA", new[] { typeof(int), typeof(bool) });
+                var rodActionAliasFodgMethod = ResolveMethod(typeof(Rod), "FODGNFMBOFE", new[] { typeof(int), typeof(bool) });
+                var rodActionAliasEhooMethod = ResolveMethod(typeof(Rod), "EHOOBFJPPOI", new[] { typeof(int), typeof(bool) });
+                var rodActionAliasOhinMethod = ResolveMethod(typeof(Rod), "OHINFBCDKLI", new[] { typeof(int), typeof(bool) });
+                var rodActionAliasGgahMethod = ResolveMethod(typeof(Rod), "GGAHICGOLLN", new[] { typeof(int), typeof(bool) });
                 var rodNbfbMethod = ResolveMethod(typeof(Rod), "NBFBPMNMBJG", new[] { typeof(int) });
                 var rodOfakMethod = ResolveMethod(typeof(Rod), "OFAKNHNLKGI", new[] { typeof(int) });
                 var rodAnimStartMethod = ResolveMethod(typeof(Rod), "JGNPMBNGKNG", new[] { typeof(int) });
@@ -154,7 +205,8 @@ namespace NepEasyFishing
                 var actionBarActionSelectedItemMethod = ResolveMethod(typeof(ActionBarInventory), "ActionSelectedItem", new[] { typeof(int), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(int) });
                 var actionBarMbohMethod = ResolveMethod(typeof(ActionBarInventory), "MBOHNGNNCED", Type.EmptyTypes);
 
-                var rodActionPostfix = AccessTools.Method(typeof(Plugin), nameof(RodActionPostfix), new[] { typeof(int), typeof(bool), typeof(bool) });
+                var rodActionPrefix = AccessTools.Method(typeof(Plugin), nameof(RodActionPrefix), new[] { typeof(int), typeof(bool), typeof(MethodBase) });
+                var rodActionPostfix = AccessTools.Method(typeof(Plugin), nameof(RodActionPostfix), new[] { typeof(int), typeof(bool), typeof(bool), typeof(MethodBase) });
                 var rodNbfbPostfix = AccessTools.Method(typeof(Plugin), nameof(RodNbfbPostfix), new[] { typeof(int), typeof(bool) });
                 var rodOfakPostfix = AccessTools.Method(typeof(Plugin), nameof(RodOfakPostfix), new[] { typeof(int), typeof(bool) });
                 var rodAnimStagePrefix = AccessTools.Method(typeof(Plugin), nameof(RodAnimationStagePrefix), new[] { typeof(int), typeof(MethodBase) });
@@ -164,6 +216,7 @@ namespace NepEasyFishing
                 var useSelectedItemPostfix = AccessTools.Method(typeof(Plugin), nameof(UseSelectedItemPostfix), new[] { typeof(UseObject), typeof(bool), typeof(bool), typeof(int), typeof(bool) });
                 var actionSelectedItemPostfix = AccessTools.Method(typeof(Plugin), nameof(ActionSelectedItemPostfix), new[] { typeof(ActionBarInventory), typeof(int), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(int), typeof(bool) });
                 var actionBarMbohPostfix = AccessTools.Method(typeof(Plugin), nameof(ActionBarMbohPostfix), new[] { typeof(ActionBarInventory), typeof(object) });
+                var actionBarAnyActionPrefix = AccessTools.Method(typeof(Plugin), nameof(ActionBarAnyActionPrefix), new[] { typeof(ActionBarInventory), typeof(int), typeof(bool), typeof(MethodBase) });
 
                 PatchWithLogging("FishingUI.StartFishingGame(Rod)", startFishingGameMethod, startFishingGamePostfix, isPrefix: false);
                 PatchWithLogging("FishingController.StartFishingCoroutine(Vector3, Rod)", startFishingCoroutineMethod, startFishingCoroutinePrefix, isPrefix: true);
@@ -177,10 +230,31 @@ namespace NepEasyFishing
                 PatchWithLogging("FishingController.IHIAGODKCLJ()", createBitesListAliasIhiaMethod, createBitesListPostfix, isPrefix: false);
                 PatchWithLogging("FishingController.EGDOBIADPMA()", createBitesListAliasEgdoMethod, createBitesListPostfix, isPrefix: false);
                 PatchWithLogging("FishingController.FinishFishing(bool)", finishFishingMethod, finishFishingPrefix, isPrefix: true);
+                PatchWithLogging("FishingController.MOECKIFAFII(bool)", finishFishingAliasMoeckMethod, finishFishingPrefix, isPrefix: true);
+                PatchWithLogging("FishingController.IAACFAPNOFI(bool)", finishFishingAliasIaacMethod, finishFishingPrefix, isPrefix: true);
+                PatchWithLogging("FishingController.HJPINMGNLJB(bool)", finishFishingAliasHjpiMethod, finishFishingPrefix, isPrefix: true);
                 PatchWithLogging("FishingUI.LateUpdate()", lateUpdateMethod, lateUpdatePrefix, isPrefix: true);
                 PatchWithLogging("FishingHook.SetFake()", fishingHookSetFakeMethod, fishingHookSetFakePrefix, isPrefix: true);
                 PatchWithLogging("FishingHook.SetBait()", fishingHookSetBaitMethod, fishingHookSetBaitPostfix, isPrefix: false);
+                PatchWithLogging("PlayerInventory.RemoveItem(Item)", playerInventoryRemoveItemOneArgMethod, playerInventoryRemoveItemItemPrefix, isPrefix: true);
+                PatchWithLogging("PlayerInventory.RemoveItem(Item, bool)", playerInventoryRemoveItemMethod, playerInventoryRemoveItemItemBoolPrefix, isPrefix: true);
+                PatchWithLogging("PlayerInventory.OOEJMKIAPLC(Item, bool)", playerInventoryRemoveItemAliasMethod, playerInventoryRemoveItemItemBoolPrefix, isPrefix: true);
+                PatchWithLogging("Container.RemoveItem(Item, bool)", containerRemoveItemMethod, containerRemoveItemPrefix, isPrefix: true);
+                PatchWithLogging("Slot.MEODNPFJDMH(bool)", slotConsumeOneMethod, slotConsumeOnePrefix, isPrefix: true);
+                PatchWithLogging("Slot.MBCIJPPOGJG(bool)", slotConsumeOneAliasMethod, slotConsumeOnePrefix, isPrefix: true);
+                PatchWithLogging("Slot.BGJPNGLONLP(int,bool,bool)", slotSetStackMethod, slotSetStackPrefix, isPrefix: true);
+                PatchWithLogging("Rod.Action(int, bool) protection", rodActionMethod, rodActionPrefix, isPrefix: true);
+                PatchWithLogging("Rod.EHHCPOCLAJA(int, bool) protection", rodActionAliasEhhcMethod, rodActionPrefix, isPrefix: true);
+                PatchWithLogging("Rod.FODGNFMBOFE(int, bool) protection", rodActionAliasFodgMethod, rodActionPrefix, isPrefix: true);
+                PatchWithLogging("Rod.EHOOBFJPPOI(int, bool) protection", rodActionAliasEhooMethod, rodActionPrefix, isPrefix: true);
+                PatchWithLogging("Rod.OHINFBCDKLI(int, bool) protection", rodActionAliasOhinMethod, rodActionPrefix, isPrefix: true);
+                PatchWithLogging("Rod.GGAHICGOLLN(int, bool) protection", rodActionAliasGgahMethod, rodActionPrefix, isPrefix: true);
                 PatchWithLogging("Rod.Action(int, bool)", rodActionMethod, rodActionPostfix, isPrefix: false);
+                PatchWithLogging("Rod.EHHCPOCLAJA(int, bool)", rodActionAliasEhhcMethod, rodActionPostfix, isPrefix: false);
+                PatchWithLogging("Rod.FODGNFMBOFE(int, bool)", rodActionAliasFodgMethod, rodActionPostfix, isPrefix: false);
+                PatchWithLogging("Rod.EHOOBFJPPOI(int, bool)", rodActionAliasEhooMethod, rodActionPostfix, isPrefix: false);
+                PatchWithLogging("Rod.OHINFBCDKLI(int, bool)", rodActionAliasOhinMethod, rodActionPostfix, isPrefix: false);
+                PatchWithLogging("Rod.GGAHICGOLLN(int, bool)", rodActionAliasGgahMethod, rodActionPostfix, isPrefix: false);
                 PatchWithLogging("Rod.NBFBPMNMBJG(int)", rodNbfbMethod, rodNbfbPostfix, isPrefix: false);
                 PatchWithLogging("Rod.OFAKNHNLKGI(int)", rodOfakMethod, rodOfakPostfix, isPrefix: false);
                 PatchWithLogging("Rod.JGNPMBNGKNG(int)", rodAnimStartMethod, rodAnimStagePrefix, isPrefix: true);
@@ -195,6 +269,39 @@ namespace NepEasyFishing
                 PatchWithLogging("UseObject.UseSelectedItem(bool, bool, int)", useObjectUseSelectedItemMethod, useSelectedItemPostfix, isPrefix: false);
                 PatchWithLogging("ActionBarInventory.ActionSelectedItem(int, bool, bool, bool, bool, int)", actionBarActionSelectedItemMethod, actionSelectedItemPostfix, isPrefix: false);
                 PatchWithLogging("ActionBarInventory.MBOHNGNNCED()", actionBarMbohMethod, actionBarMbohPostfix, isPrefix: false);
+
+                var actionBarPatched = new HashSet<MethodBase>();
+                if (actionBarActionSelectedItemMethod != null)
+                    actionBarPatched.Add(actionBarActionSelectedItemMethod);
+                var actionBarMethods = typeof(ActionBarInventory).GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                foreach (var method in actionBarMethods)
+                {
+                    try
+                    {
+                        if (method == null)
+                            continue;
+                        if (method.IsSpecialName)
+                            continue;
+                        if (actionBarPatched.Contains(method))
+                            continue;
+                        if (method.ReturnType != typeof(bool))
+                            continue;
+
+                        var parameters = method.GetParameters();
+                        if (parameters.Length < 2)
+                            continue;
+                        if (parameters[0].ParameterType != typeof(int) || parameters[1].ParameterType != typeof(bool))
+                            continue;
+
+                        _harmony.Patch(method, prefix: new HarmonyMethod(actionBarAnyActionPrefix));
+                        actionBarPatched.Add(method);
+                        DebugLog($"Dynamic patch ActionBarInventory.{method.Name}(...) => PREFIX");
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLog($"Dynamic patch failed ActionBarInventory.{method?.Name}: {ex.GetType().Name}: {ex.Message}");
+                    }
+                }
 
                 DebugLog("Harmony explicit patching completed");
 
@@ -215,10 +322,25 @@ namespace NepEasyFishing
                 LogPatchInfo("FishingController.IHIAGODKCLJ()", createBitesListAliasIhiaMethod);
                 LogPatchInfo("FishingController.EGDOBIADPMA()", createBitesListAliasEgdoMethod);
                 LogPatchInfo("FishingController.FinishFishing(bool)", finishFishingMethod);
+                LogPatchInfo("FishingController.MOECKIFAFII(bool)", finishFishingAliasMoeckMethod);
+                LogPatchInfo("FishingController.IAACFAPNOFI(bool)", finishFishingAliasIaacMethod);
+                LogPatchInfo("FishingController.HJPINMGNLJB(bool)", finishFishingAliasHjpiMethod);
                 LogPatchInfo("FishingUI.LateUpdate()", lateUpdateMethod);
                 LogPatchInfo("FishingHook.SetFake()", fishingHookSetFakeMethod);
                 LogPatchInfo("FishingHook.SetBait()", fishingHookSetBaitMethod);
+                LogPatchInfo("PlayerInventory.RemoveItem(Item)", playerInventoryRemoveItemOneArgMethod);
+                LogPatchInfo("PlayerInventory.RemoveItem(Item, bool)", playerInventoryRemoveItemMethod);
+                LogPatchInfo("PlayerInventory.OOEJMKIAPLC(Item, bool)", playerInventoryRemoveItemAliasMethod);
+                LogPatchInfo("Container.RemoveItem(Item, bool)", containerRemoveItemMethod);
+                LogPatchInfo("Slot.MEODNPFJDMH(bool)", slotConsumeOneMethod);
+                LogPatchInfo("Slot.MBCIJPPOGJG(bool)", slotConsumeOneAliasMethod);
+                LogPatchInfo("Slot.BGJPNGLONLP(int,bool,bool)", slotSetStackMethod);
                 LogPatchInfo("Rod.Action(int, bool)", rodActionMethod);
+                LogPatchInfo("Rod.EHHCPOCLAJA(int, bool)", rodActionAliasEhhcMethod);
+                LogPatchInfo("Rod.FODGNFMBOFE(int, bool)", rodActionAliasFodgMethod);
+                LogPatchInfo("Rod.EHOOBFJPPOI(int, bool)", rodActionAliasEhooMethod);
+                LogPatchInfo("Rod.OHINFBCDKLI(int, bool)", rodActionAliasOhinMethod);
+                LogPatchInfo("Rod.GGAHICGOLLN(int, bool)", rodActionAliasGgahMethod);
                 LogPatchInfo("Rod.NBFBPMNMBJG(int)", rodNbfbMethod);
                 LogPatchInfo("Rod.OFAKNHNLKGI(int)", rodOfakMethod);
                 LogPatchInfo("Rod.JGNPMBNGKNG(int)", rodAnimStartMethod);
@@ -294,7 +416,18 @@ namespace NepEasyFishing
                 }
             }
 
-            return AccessTools.Method(type, methodName);
+            if (signatures != null && signatures.Length > 0)
+                return null;
+
+            try
+            {
+                return AccessTools.Method(type, methodName);
+            }
+            catch (AmbiguousMatchException ex)
+            {
+                DebugLog($"ResolveMethod ambiguous: {type.FullName}.{methodName}: {ex.Message}");
+                return null;
+            }
         }
 
         private static string SafeMemberReadAsString(object instance, string memberName)
@@ -383,6 +516,11 @@ namespace NepEasyFishing
                 PollQuickBitesFallback();
             }
 
+            if (_dontUseBait?.Value == true)
+            {
+                PollDontUseBaitGlobalMonitor();
+            }
+
             if (_debugLogging?.Value == true && Input.GetKeyDown(KeyCode.F8))
             {
                 DumpFishingState("F8");
@@ -428,6 +566,11 @@ namespace NepEasyFishing
                 if (_FishBarQuickBites?.Value == true)
                 {
                     PollQuickBitesFallback();
+                }
+
+                if (_dontUseBait?.Value == true)
+                {
+                    PollDontUseBaitGlobalMonitor();
                 }
 
                 if (_debugLogging?.Value == true && Input.GetKeyDown(KeyCode.F8))
@@ -759,6 +902,7 @@ namespace NepEasyFishing
         static bool StartFishingAnyPrefix(FishingController __instance, MethodBase __originalMethod)
         {
             DebugLog($"StartFishingAnyPrefix source={__originalMethod?.Name}");
+            MarkBaitProtection(__instance?.playerNum ?? -1, 8f);
             if (_FishBarQuickBites.Value)
             {
                 var settings = FishingControllerSettings.GetValue(__instance) as FishingManagerSettings;
@@ -916,35 +1060,863 @@ namespace NepEasyFishing
         static void FinishFishingPrefix(FishingController __instance)
         {
             DebugLog("FinishFishingPrefix");
+            MarkBaitProtection(__instance?.playerNum ?? -1, 2f);
+        }
 
-            if (_dontUseBait.Value)
+        static bool PlayerInventoryRemoveItemItemPrefix(PlayerInventory __instance, Item __0, ref Slot __result, MethodBase __originalMethod)
+        {
+            return TryHandleBaitRemovalBlock(__instance, __0, ref __result, __originalMethod);
+        }
+
+        static bool PlayerInventoryRemoveItemItemBoolPrefix(PlayerInventory __instance, Item __0, bool __1, ref Slot __result, MethodBase __originalMethod)
+        {
+            return TryHandleBaitRemovalBlock(__instance, __0, ref __result, __originalMethod);
+        }
+
+        static bool ContainerRemoveItemPrefix(Container __instance, Item __0, bool __1, ref Slot __result, MethodBase __originalMethod)
+        {
+            return TryHandleBaitRemovalBlock(__instance, __0, ref __result, __originalMethod);
+        }
+
+        static bool SlotConsumeOnePrefix(Slot __instance, bool __0, ref bool __result, MethodBase __originalMethod)
+        {
+            if (_dontUseBait?.Value != true)
+                return true;
+
+            if (_isRefundingBait)
+                return true;
+
+            if (__instance == null)
+                return true;
+
+            if (!TryGetSlotItemId(__instance, out var slotItemId) || !_baitItemIds.Contains(slotItemId))
+                return true;
+
+            var methodName = __originalMethod?.Name ?? "unknown";
+            if (!TryResolvePlayerForSlot(__instance, out var playerNum))
             {
-                //We're going to add an extra piece of the selected bait to the players inventory right before the code that (among other things) removes the bait.
+                DebugLog($"EASYFISHING_BAIT_REMOVE_ALLOW reason=slot-player-unresolved method={methodName} itemId={slotItemId} baitName={GetBaitName(slotItemId)} player=-1");
+                return true;
+            }
 
-                // If we can get the numeric id of the bait Item we can make an ItemInstance of it with "new ItemInstance" 
-                //__instance.baitSelected is an enum 
-                // FishingManager.BaitItem() returns an Item when given the bait enum
-                Item baitItem = FishingManager.BaitItem(__instance.baitSelected);
-                if (baitItem == null)
-                {
-                    DebugLog("FinishFishing Prefix: no bait selected");
-                    return;
-                }
+            if (!IsBaitProtectionActive(playerNum) && !IsFishingContext(playerNum))
+                return true;
 
-                //Then use reflection to get the id from the private field
-                int reflectedItemID = 0;
-                reflectedItemID = Traverse.Create(baitItem).Field("id").GetValue<int>();
-                if (reflectedItemID != 0)
+            if (!SelectedOrProtectedBaitMatches(playerNum, slotItemId))
+                return true;
+
+            __result = true;
+            Log.LogInfo($"EASYFISHING_DONT_USE_BAIT_SLOT_BLOCKED method={methodName} player={playerNum} itemId={slotItemId} baitName={GetBaitName(slotItemId)}");
+            return false;
+        }
+
+        static bool SlotSetStackPrefix(Slot __instance, ref int __0, bool __1, bool __2, MethodBase __originalMethod)
+        {
+            if (_dontUseBait?.Value != true || _isRefundingBait)
+                return true;
+
+            if (__instance == null)
+                return true;
+
+            var oldAmount = Mathf.Max(0, GetSlotAmount(__instance));
+            var requested = Mathf.Max(0, __0);
+            if (requested >= oldAmount)
+                return true;
+
+            if (!TryGetSlotItemId(__instance, out var itemId) || !_baitItemIds.Contains(itemId))
+                return true;
+
+            var methodName = __originalMethod?.Name ?? "unknown";
+            if (!TryResolvePlayerForSlot(__instance, out var playerNum))
+            {
+                DebugLog($"EASYFISHING_BAIT_STACK_ALLOW reason=slot-player-unresolved method={methodName} itemId={itemId} baitName={GetBaitName(itemId)} old={oldAmount} requested={requested}");
+                return true;
+            }
+
+            if (!ShouldProtectSelectedFishingBait(playerNum, itemId))
+            {
+                DebugLog($"EASYFISHING_BAIT_STACK_ALLOW reason=not-protected method={methodName} player={playerNum} itemId={itemId} baitName={GetBaitName(itemId)} old={oldAmount} requested={requested}");
+                return true;
+            }
+
+            __0 = oldAmount;
+            Log.LogInfo($"EASYFISHING_DONT_USE_BAIT_STACK_BLOCKED method={methodName} player={playerNum} itemId={itemId} baitName={GetBaitName(itemId)} old={oldAmount} requested={requested}");
+            return true;
+        }
+
+        static bool TryHandleBaitRemovalBlock(object inventoryOrContainer, Item item, ref Slot result, MethodBase originalMethod)
+        {
+            if (_dontUseBait?.Value != true)
+                return true;
+
+            if (inventoryOrContainer == null || item == null)
+                return true;
+
+            if (!TryGetItemId(item, out var removedItemId))
+                return true;
+
+            if (!_baitItemIds.Contains(removedItemId))
+                return true;
+
+            var baitName = GetBaitName(removedItemId);
+            var methodName = originalMethod?.Name ?? "unknown";
+            var playerForSeen = -1;
+            TryGetPlayerNumFromInventoryOrContainer(inventoryOrContainer, out playerForSeen);
+            DebugLog($"EASYFISHING_BAIT_REMOVE_SEEN method={methodName} itemId={removedItemId} baitName={baitName} player={playerForSeen}");
+
+            if (!TryGetPlayerNumFromInventoryOrContainer(inventoryOrContainer, out var playerNum))
+            {
+                DebugLog($"EASYFISHING_BAIT_REMOVE_ALLOW reason=player-unresolved method={methodName} itemId={removedItemId} baitName={baitName} player=-1");
+                return true;
+            }
+
+            var controller = GetFishingControllerSafe(playerNum);
+            if (controller == null)
+            {
+                DebugLog($"EASYFISHING_BAIT_REMOVE_ALLOW reason=controller-missing method={methodName} itemId={removedItemId} baitName={baitName} player={playerNum}");
+                return true;
+            }
+
+            Item selectedBaitItem = null;
+            try
+            {
+                selectedBaitItem = FishingManager.BaitItem(controller.baitSelected);
+            }
+            catch
+            {
+                DebugLog($"EASYFISHING_BAIT_REMOVE_ALLOW reason=bait-resolve-failed method={methodName} itemId={removedItemId} baitName={baitName} player={playerNum}");
+                return true;
+            }
+
+            if (!TryGetItemId(selectedBaitItem, out var selectedBaitItemId))
+            {
+                DebugLog($"EASYFISHING_BAIT_REMOVE_ALLOW reason=selected-bait-id-missing method={methodName} itemId={removedItemId} baitName={baitName} player={playerNum}");
+                return true;
+            }
+
+            if (selectedBaitItemId != removedItemId)
+            {
+                DebugLog($"EASYFISHING_BAIT_REMOVE_ALLOW reason=selected-bait-mismatch method={methodName} itemId={removedItemId} baitName={baitName} player={playerNum}");
+                return true;
+            }
+
+            if (!controller.fishing && !IsBaitProtectionActive(playerNum))
+            {
+                DebugLog($"EASYFISHING_BAIT_REMOVE_ALLOW reason=no-fishing-context method={methodName} itemId={removedItemId} baitName={baitName} player={playerNum}");
+                return true;
+            }
+
+            result = null;
+            Log.LogInfo($"EASYFISHING_DONT_USE_BAIT_BLOCKED method={methodName} player={playerNum} baitType={controller.baitSelected} itemId={removedItemId} baitName={baitName}");
+            return false;
+        }
+
+        static void MarkBaitProtection(int playerNum, float seconds)
+        {
+            if (_dontUseBait?.Value != true)
+                return;
+
+            if (playerNum < 0 || playerNum >= _baitProtectionUntilByPlayer.Length)
+                return;
+
+            try
+            {
+                var controller = GetFishingControllerSafe(playerNum);
+                if (controller == null)
                 {
-                    DebugLog($"FinishFishing Prefix: bait itemID {reflectedItemID}");
-                    ItemInstance baitItemInstance =
-                        new ItemInstance(ItemDatabaseAccessor.GetItem(reflectedItemID, false, true));
-                    PlayerInventory.GetPlayer(__instance.playerNum)
-                        .AddItem(baitItemInstance); //AddItem wants an item instance, not an item
+                    DebugLog($"MarkBaitProtection: no controller for player={playerNum}");
                 }
                 else
-                    DebugLog("FinishFishing Prefix: failed to get itemId for bait");
+                {
+                    Item selectedBaitItem = null;
+                    try
+                    {
+                        selectedBaitItem = FishingManager.BaitItem(controller.baitSelected);
+                    }
+                    catch
+                    {
+                        selectedBaitItem = null;
+                    }
+
+                    if (TryGetItemId(selectedBaitItem, out var baitId) && _baitItemIds.Contains(baitId))
+                    {
+                        var baselineCount = CountPlayerItem(playerNum, baitId);
+                        _protectedBaitIdByPlayer[playerNum] = baitId;
+                        _protectedBaitBaselineByPlayer[playerNum] = baselineCount;
+                        Log.LogInfo($"EASYFISHING_BAIT_PROTECTION_MARKED player={playerNum} baitId={baitId} baitName={GetBaitName(baitId)} baseline={baselineCount} seconds={seconds:0.###}");
+                    }
+                    else
+                    {
+                        DebugLog($"MarkBaitProtection: selected bait unresolved player={playerNum}");
+                    }
+                }
             }
+            catch (Exception ex)
+            {
+                DebugLog($"MarkBaitProtection failed player={playerNum}: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            var duration = Mathf.Max(0f, seconds);
+            var until = Time.realtimeSinceStartup + duration;
+            if (until > _baitProtectionUntilByPlayer[playerNum])
+                _baitProtectionUntilByPlayer[playerNum] = until;
+        }
+
+        static bool IsBaitProtectionActive(int playerNum)
+        {
+            if (playerNum < 0 || playerNum >= _baitProtectionUntilByPlayer.Length)
+                return false;
+
+            return Time.realtimeSinceStartup <= _baitProtectionUntilByPlayer[playerNum];
+        }
+
+        static void MarkBaitProtectionForAllPlayers(float seconds)
+        {
+            for (var playerNum = 0; playerNum < _baitProtectionUntilByPlayer.Length; playerNum++)
+                MarkBaitProtection(playerNum, seconds);
+        }
+
+        static bool SelectedOrProtectedBaitMatches(int playerNum, int itemId)
+        {
+            if (playerNum < 0 || playerNum >= _protectedBaitIdByPlayer.Length)
+                return false;
+
+            if (_protectedBaitIdByPlayer[playerNum] == itemId)
+                return true;
+
+            var controller = GetFishingControllerSafe(playerNum);
+            if (controller == null)
+                return false;
+
+            try
+            {
+                var selectedBaitItem = FishingManager.BaitItem(controller.baitSelected);
+                return TryGetItemId(selectedBaitItem, out var selectedId) && selectedId == itemId;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        static string GetBaitName(int itemId)
+        {
+            return _baitNamesByItemId.TryGetValue(itemId, out var name) ? name : "Unknown";
+        }
+
+        static bool TryGetItemId(Item item, out int itemId)
+        {
+            itemId = 0;
+            if (item == null)
+                return false;
+
+            try
+            {
+                itemId = Traverse.Create(item).Field("id").GetValue<int>();
+            }
+            catch
+            {
+                itemId = 0;
+            }
+
+            return itemId != 0;
+        }
+
+        static FishingController GetFishingControllerSafe(int playerNum)
+        {
+            try
+            {
+                return FishingController.Get(playerNum);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        static bool TryGetPlayerNumFromInventory(PlayerInventory inventory, out int playerNum)
+        {
+            playerNum = -1;
+            if (inventory == null)
+                return false;
+
+            try
+            {
+                var reflected = Traverse.Create(inventory).Field("playerNum")?.GetValue();
+                if (reflected is int p)
+                {
+                    playerNum = p;
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                var reflectedAlias = Traverse.Create(inventory).Field("JIIGOACEIKL")?.GetValue();
+                if (reflectedAlias is int pAlias)
+                {
+                    playerNum = pAlias;
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+
+            for (var i = 0; i <= 4; i++)
+            {
+                try
+                {
+                    var byPlayer = PlayerInventory.GetPlayer(i);
+                    if (ReferenceEquals(byPlayer, inventory))
+                    {
+                        playerNum = i;
+                        return true;
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            return false;
+        }
+
+        static bool TryGetPlayerNumFromInventoryOrContainer(object inventoryOrContainer, out int playerNum)
+        {
+            playerNum = -1;
+            if (inventoryOrContainer == null)
+                return false;
+
+            if (inventoryOrContainer is PlayerInventory playerInventory)
+                return TryGetPlayerNumFromInventory(playerInventory, out playerNum);
+
+            if (TryGetPlayerNumFromObjectField(inventoryOrContainer, out playerNum))
+                return true;
+
+            for (var i = 0; i <= 4; i++)
+            {
+                try
+                {
+                    var playerInventoryCandidate = PlayerInventory.GetPlayer(i);
+                    if (playerInventoryCandidate == null)
+                        continue;
+
+                    var actionBar = Traverse.Create(playerInventoryCandidate).Field("actionBarInventory")?.GetValue();
+                    if (ReferenceEquals(actionBar, inventoryOrContainer))
+                    {
+                        playerNum = i;
+                        return true;
+                    }
+
+                    var inventory = Traverse.Create(playerInventoryCandidate).Field("inventory")?.GetValue();
+                    if (ReferenceEquals(inventory, inventoryOrContainer))
+                    {
+                        playerNum = i;
+                        return true;
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            return false;
+        }
+
+        static bool TryGetPlayerNumFromObjectField(object instance, out int playerNum)
+        {
+            playerNum = -1;
+            if (instance == null)
+                return false;
+
+            foreach (var fieldName in new[] { "playerNum", "JIIGOACEIKL" })
+            {
+                try
+                {
+                    var reflected = Traverse.Create(instance).Field(fieldName)?.GetValue();
+                    if (reflected is int p)
+                    {
+                        playerNum = p;
+                        return true;
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            return false;
+        }
+
+        static void PollDontUseBaitRefundFallback()
+        {
+            for (var playerNum = 0; playerNum <= 4; playerNum++)
+            {
+                if (playerNum < 0 || playerNum >= _protectedBaitIdByPlayer.Length)
+                    continue;
+
+                var protectedBaitId = _protectedBaitIdByPlayer[playerNum];
+                if (protectedBaitId == 0)
+                    continue;
+
+                if (!IsBaitProtectionActive(playerNum) && !IsFishingContext(playerNum))
+                    continue;
+
+                var baseline = _protectedBaitBaselineByPlayer[playerNum];
+                var current = CountPlayerItem(playerNum, protectedBaitId);
+                if (current >= baseline)
+                    continue;
+
+                var missing = baseline - current;
+                if (missing <= 0)
+                    continue;
+
+                AddBait(playerNum, protectedBaitId, missing);
+                Log.LogInfo($"EASYFISHING_DONT_USE_BAIT_REFUNDED player={playerNum} itemId={protectedBaitId} baitName={GetBaitName(protectedBaitId)} missing={missing} baseline={baseline} currentBefore={current}");
+            }
+        }
+
+        static void PollDontUseBaitGlobalMonitor()
+        {
+            if (_lastDontUseBaitMonitorFrame == Time.frameCount)
+                return;
+
+            _lastDontUseBaitMonitorFrame = Time.frameCount;
+            var now = Time.realtimeSinceStartup;
+
+            for (var playerNum = 0; playerNum <= 4; playerNum++)
+            {
+                var selectedBaitId = GetSelectedFishingBaitItemId(playerNum);
+                var rodSelected = IsRodSelectedForPlayer(playerNum);
+                var fishingContext = IsFishingContext(playerNum);
+
+                if (rodSelected)
+                    _rodSelectedUntilByPlayer[playerNum] = now + 3f;
+                if (fishingContext)
+                    _fishingContextUntilByPlayer[playerNum] = now + 10f;
+
+                if (selectedBaitId != 0 && (rodSelected || fishingContext))
+                {
+                    _lastSelectedBaitIdByPlayer[playerNum] = selectedBaitId;
+                    _lastSelectedBaitSeenAtByPlayer[playerNum] = now;
+                }
+
+                if (!_baitMonitorInitializedByPlayer[playerNum])
+                {
+                    for (var baitIndex = 0; baitIndex < BaitIds.Length; baitIndex++)
+                    {
+                        _lastBaitCountsByPlayer[playerNum, baitIndex] = CountPlayerItem(playerNum, BaitIds[baitIndex]);
+                    }
+
+                    _baitMonitorInitializedByPlayer[playerNum] = true;
+                    DebugLog($"EASYFISHING_DONT_USE_BAIT_MONITOR_READY player={playerNum} selectedBaitId={selectedBaitId} rodSelected={rodSelected} fishingContext={fishingContext}");
+                    continue;
+                }
+
+                for (var baitIndex = 0; baitIndex < BaitIds.Length; baitIndex++)
+                {
+                    var baitId = BaitIds[baitIndex];
+                    var previous = _lastBaitCountsByPlayer[playerNum, baitIndex];
+                    var current = CountPlayerItem(playerNum, baitId);
+                    if (current < previous)
+                    {
+                        var missing = previous - current;
+                        if (ShouldProtectSelectedFishingBait(playerNum, baitId))
+                        {
+                            try
+                            {
+                                _isRefundingBait = true;
+                                AddBait(playerNum, baitId, missing);
+                            }
+                            finally
+                            {
+                                _isRefundingBait = false;
+                            }
+
+                            var after = CountPlayerItem(playerNum, baitId);
+                            Log.LogInfo($"EASYFISHING_DONT_USE_BAIT_MONITOR_REFUNDED player={playerNum} itemId={baitId} baitName={GetBaitName(baitId)} missing={missing} previous={previous} currentBefore={current} currentAfter={after} selectedBaitId={selectedBaitId} rodSelected={rodSelected} fishingContext={fishingContext}");
+                            current = after;
+                        }
+                        else
+                        {
+                            DebugLog($"EASYFISHING_DONT_USE_BAIT_MONITOR_DECREASE_IGNORED player={playerNum} itemId={baitId} baitName={GetBaitName(baitId)} previous={previous} current={current} selectedBaitId={selectedBaitId} rodSelected={rodSelected} fishingContext={fishingContext}");
+                        }
+                    }
+
+                    _lastBaitCountsByPlayer[playerNum, baitIndex] = current;
+                }
+            }
+        }
+
+        static bool ShouldProtectSelectedFishingBait(int playerNum, int baitItemId)
+        {
+            if (playerNum < 0 || playerNum > 4)
+                return false;
+
+            if (!_baitItemIds.Contains(baitItemId))
+                return false;
+
+            var now = Time.realtimeSinceStartup;
+            var selectedBaitId = GetSelectedFishingBaitItemId(playerNum);
+            var baitMatches = baitItemId == selectedBaitId ||
+                              (baitItemId == _lastSelectedBaitIdByPlayer[playerNum] && now - _lastSelectedBaitSeenAtByPlayer[playerNum] <= 10f);
+
+            var context = IsFishingContext(playerNum) ||
+                          IsRodSelectedForPlayer(playerNum) ||
+                          now <= _rodSelectedUntilByPlayer[playerNum] ||
+                          now <= _fishingContextUntilByPlayer[playerNum];
+
+            return baitMatches && context;
+        }
+
+        static int GetSelectedFishingBaitItemId(int playerNum)
+        {
+            try
+            {
+                var controller = FishingController.Get(playerNum);
+                if (controller == null)
+                    return 0;
+
+                var baitItem = FishingManager.BaitItem(controller.baitSelected);
+                if (!TryGetItemId(baitItem, out var baitId))
+                    return 0;
+
+                return _baitItemIds.Contains(baitId) ? baitId : 0;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        static bool IsRodSelectedForPlayer(int playerNum)
+        {
+            try
+            {
+                var playerInventory = PlayerInventory.GetPlayer(playerNum);
+                if (playerInventory == null)
+                    return false;
+
+                var actionBar = Traverse.Create(playerInventory).Field("actionBarInventory")?.GetValue() as ActionBarInventory;
+                if (actionBar == null)
+                    return false;
+
+                var selectedItemObj = actionBar.GetSelectedItem();
+                var selectedInstanceObj = actionBar.GetSelectedItemInstance();
+                var selectedType = selectedItemObj?.GetType().Name ?? string.Empty;
+                var instanceType = selectedInstanceObj?.GetType().Name ?? string.Empty;
+                if (selectedType.Contains("Rod") || instanceType.Contains("Rod"))
+                    return true;
+
+                object instanceItem = null;
+                try
+                {
+                    instanceItem = Traverse.Create(selectedInstanceObj).Method("LHBPOPOIFLE")?.GetValue();
+                }
+                catch
+                {
+                }
+
+                if (instanceItem == null)
+                {
+                    try
+                    {
+                        instanceItem = Traverse.Create(selectedInstanceObj).Method("AFOACBIHNCL")?.GetValue();
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                var instanceItemType = instanceItem?.GetType().Name ?? string.Empty;
+                return instanceItemType.Contains("Rod");
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        static int CountPlayerItem(int playerNum, int itemId)
+        {
+            if (itemId == 0)
+                return 0;
+
+            PlayerInventory playerInventory = null;
+            try
+            {
+                playerInventory = PlayerInventory.GetPlayer(playerNum);
+            }
+            catch
+            {
+                return 0;
+            }
+
+            if (playerInventory == null)
+                return 0;
+
+            int total = 0;
+            try
+            {
+                var allSlotsObj = Traverse.Create(playerInventory).Method("GetAllSlots")?.GetValue();
+                if (allSlotsObj is IEnumerable<Slot> directSlots)
+                {
+                    foreach (var slot in directSlots)
+                    {
+                        if (slot == null || !TryGetSlotItemId(slot, out var slotItemId) || slotItemId != itemId)
+                            continue;
+
+                        total += Mathf.Max(0, GetSlotAmount(slot));
+                    }
+
+                    return total;
+                }
+            }
+            catch
+            {
+            }
+
+            foreach (var fieldName in new[] { "actionBarInventory", "inventory" })
+            {
+                try
+                {
+                    var container = Traverse.Create(playerInventory).Field(fieldName)?.GetValue();
+                    var slotsObj = Traverse.Create(container).Field("slots")?.GetValue();
+                    if (slotsObj is IEnumerable<Slot> slots)
+                    {
+                        foreach (var slot in slots)
+                        {
+                            if (slot == null || !TryGetSlotItemId(slot, out var slotItemId) || slotItemId != itemId)
+                                continue;
+
+                            total += Mathf.Max(0, GetSlotAmount(slot));
+                        }
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            return total;
+        }
+
+        static void AddBait(int playerNum, int itemId, int amount)
+        {
+            if (amount <= 0 || itemId == 0)
+                return;
+
+            PlayerInventory inventory = null;
+            try
+            {
+                inventory = PlayerInventory.GetPlayer(playerNum);
+            }
+            catch
+            {
+                return;
+            }
+
+            if (inventory == null)
+                return;
+
+            for (var i = 0; i < amount; i++)
+            {
+                try
+                {
+                    var dbItem = ItemDatabaseAccessor.GetItem(itemId, false, true);
+                    if (dbItem == null)
+                        return;
+                    var instance = new ItemInstance(dbItem);
+                    inventory.AddItem(instance, false, true, false, true);
+                }
+                catch
+                {
+                    return;
+                }
+            }
+        }
+
+        static int GetSlotAmount(Slot slot)
+        {
+            if (slot == null)
+                return 0;
+
+            foreach (var fieldName in new[] { "amount", "stack", "quantity", "count" })
+            {
+                try
+                {
+                    var value = Traverse.Create(slot).Field(fieldName)?.GetValue();
+                    if (value is int i)
+                        return i;
+                }
+                catch
+                {
+                }
+            }
+
+            foreach (var propertyName in new[] { "amount", "stack", "quantity", "count" })
+            {
+                try
+                {
+                    var value = Traverse.Create(slot).Property(propertyName)?.GetValue();
+                    if (value is int i)
+                        return i;
+                }
+                catch
+                {
+                }
+            }
+
+            return 1;
+        }
+
+        static bool IsFishingContext(int playerNum)
+        {
+            try
+            {
+                var controller = FishingController.Get(playerNum);
+                if (controller != null)
+                {
+                    if (controller.fishing)
+                        return true;
+
+                    try
+                    {
+                        var fishingCameraObj = Traverse.Create(controller).Field("fishingCamera")?.GetValue();
+                        if (fishingCameraObj is Camera fishingCamera && fishingCamera != null)
+                            return true;
+                        if (fishingCameraObj is GameObject cameraGo && cameraGo.activeInHierarchy)
+                            return true;
+                    }
+                    catch
+                    {
+                    }
+
+                    var hook = Traverse.Create(controller).Field("fishingHook")?.GetValue() as FishingHook;
+                    if (hook != null)
+                    {
+                        if (hook.gameObject != null && hook.gameObject.activeInHierarchy)
+                            return true;
+                        if (hook.enabled)
+                            return true;
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                var ui = FishingUI.Get(playerNum);
+                if (ui?.content != null && ui.content.activeInHierarchy)
+                    return true;
+            }
+            catch
+            {
+            }
+
+            return false;
+        }
+
+        static bool TryGetSlotItemId(Slot slot, out int itemId)
+        {
+            itemId = 0;
+            if (slot == null)
+                return false;
+
+            object itemObj = null;
+            try
+            {
+                itemObj = slot.itemInstance?.LHBPOPOIFLE();
+            }
+            catch
+            {
+            }
+
+            if (itemObj == null)
+            {
+                try
+                {
+                    itemObj = slot.itemInstance?.AFOACBIHNCL();
+                }
+                catch
+                {
+                }
+            }
+
+            return itemObj is Item item && TryGetItemId(item, out itemId);
+        }
+
+        static bool TryResolvePlayerForSlot(Slot slot, out int playerNum)
+        {
+            playerNum = -1;
+            if (slot == null)
+                return false;
+
+            for (var i = 0; i <= 4; i++)
+            {
+                PlayerInventory inventory = null;
+                try
+                {
+                    inventory = PlayerInventory.GetPlayer(i);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (inventory == null)
+                    continue;
+
+                try
+                {
+                    var allSlotsObj = Traverse.Create(inventory).Method("GetAllSlots")?.GetValue();
+                    if (allSlotsObj is IEnumerable<Slot> allSlots)
+                    {
+                        foreach (var s in allSlots)
+                        {
+                            if (ReferenceEquals(s, slot))
+                            {
+                                playerNum = i;
+                                return true;
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                }
+
+                foreach (var fieldName in new[] { "actionBarInventory", "inventory" })
+                {
+                    try
+                    {
+                        var container = Traverse.Create(inventory).Field(fieldName)?.GetValue();
+                        var slotsObj = Traverse.Create(container).Field("slots")?.GetValue();
+                        if (slotsObj is IEnumerable<Slot> slots)
+                        {
+                            foreach (var s in slots)
+                            {
+                                if (ReferenceEquals(s, slot))
+                                {
+                                    playerNum = i;
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+
+            return false;
         }
 
         //////////////////////////////////////////////////////////////////
@@ -968,12 +1940,50 @@ namespace NepEasyFishing
 
         //////////////////////////////////////////////////////////////////
         ///  Discovery diagnostics
-        static void RodActionPostfix(int __0, bool __1, bool __result)
+        static void RodActionPrefix(int __0, bool __1, MethodBase __originalMethod)
+        {
+            if (_dontUseBait?.Value == true && __1)
+            {
+                MarkBaitProtection(__0, 12f);
+                MarkBaitProtectionForAllPlayers(2f);
+                DebugLog($"EASYFISHING_BAIT_PROTECTION_MARKED source=Rod.{__originalMethod?.Name} playerNum={__0} canAct={__1}");
+            }
+        }
+
+        static void ActionBarAnyActionPrefix(ActionBarInventory __instance, int __0, bool __1, MethodBase __originalMethod)
+        {
+            if (_dontUseBait?.Value != true)
+                return;
+
+            if (!__1)
+                return;
+
+            bool isRod = false;
+            try
+            {
+                var selectedItemObj = __instance?.GetSelectedItem();
+                var selectedInstanceObj = __instance?.GetSelectedItemInstance();
+                var selectedType = selectedItemObj?.GetType().Name ?? "";
+                var instanceType = selectedInstanceObj?.GetType().Name ?? "";
+                isRod = selectedType.Contains("Rod") || instanceType.Contains("Rod");
+            }
+            catch
+            {
+            }
+
+            if (!isRod)
+                return;
+
+            MarkBaitProtection(__0, 12f);
+            DebugLog($"EASYFISHING_BAIT_PROTECTION_MARKED source=ActionBarInventory.{__originalMethod?.Name} playerNum={__0} canAct={__1}");
+        }
+
+        static void RodActionPostfix(int __0, bool __1, bool __result, MethodBase __originalMethod)
         {
             var controller = FishingController.Get(__0);
             var fishing = SafeMemberReadAsString(controller, "fishing");
             var baitSelected = SafeMemberReadAsString(controller, "baitSelected");
-            DebugLog($"Diag Rod.Action: playerNum={__0}, canAct={__1}, result={__result}, fishing={fishing}, baitSelected={baitSelected}");
+            DebugLog($"Diag Rod.{__originalMethod?.Name}: playerNum={__0}, canAct={__1}, result={__result}, fishing={fishing}, baitSelected={baitSelected}");
         }
 
         static void RodNbfbPostfix(int __0, bool __result)
