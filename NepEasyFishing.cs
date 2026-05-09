@@ -24,6 +24,7 @@ namespace NepEasyFishing
 
         private static ConfigEntry<bool> _FishBarQuickProgress;
         private static ConfigEntry<float> _FishBarQuickProgressAmount;
+        private static ConfigEntry<bool> _FishBarQuickProgressOnMiss;
         private static ConfigEntry<bool> _FishBarNoDecrease;
         private static ConfigEntry<bool> _FishBarQuickBites;
         private static ConfigEntry<bool> _InstantCatch;
@@ -37,12 +38,15 @@ namespace NepEasyFishing
         private static int _uiProbeLogFramesRemaining = 600;
         private static readonly float[] _maxFishingProgressByPlayer = new float[5];
 
-        private const string BuildProofStamp = "20260509-214713";
+        private const string BuildProofStamp = "20260509-215811";
 
         private static readonly FieldInfo FishingControllerSettings =
             AccessTools.Field(typeof(FishingController), "settings");
 
         private static readonly FieldInfo FishingUISettings = AccessTools.Field(typeof(FishingUI), "settings");
+        private static readonly FieldInfo FishingUIFishIcon = AccessTools.Field(typeof(FishingUI), "fishIcon");
+        private static readonly FieldInfo FishingUIBox = AccessTools.Field(typeof(FishingUI), "box");
+        private static readonly FieldInfo FishingUIHitThreshold = AccessTools.Field(typeof(FishingUI), "DNNFOPAGBPD");
 
         private static FieldInfo DifficultySettingsField;
 
@@ -53,6 +57,8 @@ namespace NepEasyFishing
                 "Fishing minigame progress fills very quickly when fish is clicked on");
             _FishBarQuickProgressAmount = Config.Bind("General", "Quick Progress Amount", 0.15f,
                 "Amount added to the fishing minigame progress bar per second while Quick Progress is enabled");
+            _FishBarQuickProgressOnMiss = Config.Bind("General", "Quick Progress On Miss", false,
+                "If true, Quick Progress still increases while holding input even when the fish is outside the bar/box");
             _FishBarNoDecrease = Config.Bind("General", "No Bar Decrease", true,
                 "Fishing minigame progress does not decrease");
             _FishBarQuickBites =
@@ -451,7 +457,7 @@ namespace NepEasyFishing
 
                 if (_FishBarQuickProgress?.Value == true)
                 {
-                    if (IsFishingMinigameInputActive(fishingUi, playerNum))
+                    if (IsFishingMinigameInputActive(fishingUi, playerNum) && (_FishBarQuickProgressOnMiss?.Value == true || IsFishInBox(fishingUi)))
                         reflectedSlider.value = Mathf.Clamp01(Mathf.Max(reflectedSlider.value, before + (Mathf.Max(0f, _FishBarQuickProgressAmount?.Value ?? 0.15f) * Time.deltaTime)));
                 }
 
@@ -463,7 +469,7 @@ namespace NepEasyFishing
                     _loggedEasyMinigameFallbackActive = true;
                     Log.LogInfo(
                         $"EASYFISHING_MINIGAME_FALLBACK_ACTIVE stamp={BuildProofStamp} player={playerNum} " +
-                        $"QuickProgress={_FishBarQuickProgress?.Value} QuickProgressAmount={_FishBarQuickProgressAmount?.Value} NoBarDecrease={_FishBarNoDecrease?.Value} " +
+                        $"QuickProgress={_FishBarQuickProgress?.Value} QuickProgressAmount={_FishBarQuickProgressAmount?.Value} QuickProgressOnMiss={_FishBarQuickProgressOnMiss?.Value} NoBarDecrease={_FishBarNoDecrease?.Value} " +
                         $"progressBefore={before:0.000} progressAfter={reflectedSlider.value:0.000}");
                 }
             }
@@ -498,6 +504,35 @@ namespace NepEasyFishing
                 return true;
 
             return inputs.GetButton("UIInteract") || inputs.GetButton("UIAddRemove");
+        }
+
+        private static bool IsFishInBox(FishingUI fishingUi)
+        {
+            if (fishingUi == null)
+                return false;
+
+            try
+            {
+                var fishIcon = FishingUIFishIcon?.GetValue(fishingUi) as RectTransform;
+                var box = FishingUIBox?.GetValue(fishingUi) as RectTransform;
+                if (fishIcon == null || box == null)
+                    return false;
+
+                var threshold = 0f;
+                var rawThreshold = FishingUIHitThreshold?.GetValue(fishingUi);
+                if (rawThreshold is float reflectedThreshold)
+                    threshold = reflectedThreshold;
+
+                if (threshold <= 0f)
+                    threshold = box.sizeDelta.x * 0.5f;
+
+                return Mathf.Abs(fishIcon.anchoredPosition.x - box.anchoredPosition.x) < threshold;
+            }
+            catch (Exception ex)
+            {
+                LogThrottledDiagnostic($"NepEasyFishing: failed to read fish-in-box state: {ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
         }
 
         private static void ForceFishingProgressComplete(FishingUI fishingUi, string source)
@@ -595,6 +630,7 @@ namespace NepEasyFishing
                     $"EASYFISHING_CONFIG_PROOF stamp={BuildProofStamp} " +
                     $"QuickProgress={_FishBarQuickProgress?.Value} " +
                     $"QuickProgressAmount={_FishBarQuickProgressAmount?.Value} " +
+                    $"QuickProgressOnMiss={_FishBarQuickProgressOnMiss?.Value} " +
                     $"NoBarDecrease={_FishBarNoDecrease?.Value} " +
                     $"QuickBites={_FishBarQuickBites?.Value} " +
                     $"InstantCatch={_InstantCatch?.Value} " +
