@@ -117,8 +117,6 @@ $md5 = (Get-FileHash -LiteralPath $DllPath -Algorithm MD5).Hash.ToLowerInvariant
 $sha256 = (Get-FileHash -LiteralPath $DllPath -Algorithm SHA256).Hash.ToLowerInvariant()
 
 $releaseNotes = @"
-# Travellers Rest Fishing Tweaks $TagName
-
 ## Checksums
 
 File: ``$DllName``
