@@ -2,9 +2,9 @@
 
 	<PropertyGroup>
 		<TargetFramework>netstandard2.1</TargetFramework>
-		<AssemblyName>net.nep.bepinex.easyfishing</AssemblyName>
-		<Description>Easy Fishing</Description>
-		<Version>1.0.2</Version>
+		<AssemblyName>net.bepinex.trvlrest.travellers-rest-fishing-tweaks</AssemblyName>
+		<Description>Travellers Rest Fishing Tweaks</Description>
+		<Version>1.0.0</Version>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<LangVersion>latest</LangVersion>
 		<UserSecretsId>26374c55-e306-41f1-a804-b4a7dc14b40f</UserSecretsId>
@@ -18,13 +18,14 @@
 	</ItemGroup>
 
 	<ItemGroup Condition="'$(TargetFramework.TrimEnd(`0123456789`))' == 'net'">
-		<PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.2" PrivateAssets="all" />
+		<PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.0" PrivateAssets="all" />
 	</ItemGroup>
 
 	<PropertyGroup>
 		<GameInstallDirectory>E:\SteamLibrary\steamapps\common\Travellers Rest</GameInstallDirectory>
-		<GameFilesPath>$(GameInstallDirectory)\Windows\TravellersRest_Data\Managed</GameFilesPath>
-		<BepInExPath>$(GameInstallDirectory)\Windows\BepInEx\plugins</BepInExPath>
+		<GameFilesPath>$(GameInstallDirectory)\TravellersRest_Data\Managed</GameFilesPath>
+		<BepInExPath>$(GameInstallDirectory)\BepInEx\plugins</BepInExPath>
+		<SkipPluginDeploy>false</SkipPluginDeploy>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -39,7 +40,7 @@
 		</Reference>
 	</ItemGroup>
 
-	<Target AfterTargets="Build" Name="CopyToPluginDir">
+	<Target AfterTargets="Build" Name="CopyToPluginDir" Condition="'$(SkipPluginDeploy)' != 'true' And Exists('$(BepInExPath)')">
 		<Copy SourceFiles="$(OutputPath)$(AssemblyName).dll" DestinationFolder="$(BepInExPath)" />
 	</Target>
 </Project>
