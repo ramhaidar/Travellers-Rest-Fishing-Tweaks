@@ -25,7 +25,7 @@
 		<GameInstallDirectory>E:\SteamLibrary\steamapps\common\Travellers Rest</GameInstallDirectory>
 		<GameFilesPath>$(GameInstallDirectory)\TravellersRest_Data\Managed</GameFilesPath>
 		<BepInExPath>$(GameInstallDirectory)\BepInEx\plugins</BepInExPath>
-		<DeployTimestamp>20260510-022721</DeployTimestamp>
+		<DeployTimestamp>20260510-044719</DeployTimestamp>
 	</PropertyGroup>
 
 	<ItemGroup>
