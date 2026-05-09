@@ -91,7 +91,7 @@ namespace NepEasyFishing
         private const int MinSafePlayerNum = 1;
         private const int MaxSafePlayerNum = 2;
 
-        private const string BuildProofStamp = "20260510-044719";
+        private const string BuildProofStamp = "20260510-045610";
 
         private const float MinAutoRecastDelay = 1.25f;
         private const float AutoRecastPostFinishSettle = 1.25f;
@@ -130,7 +130,7 @@ namespace NepEasyFishing
                 "Instantly catch fish once hooked instead of starting the minigame");
             _dontUseBait = Config.Bind("General", "Dont use bait", false, "Don't consume bait when fishing");
             _autoFish = Config.Bind("General", "Auto Recast Rod", false,
-                "Automatically recasts the selected fishing rod after Auto Reel / Instant Catch finishes a catch");
+                "Automatically recasts the selected fishing rod after Auto Reel / Instant Catch finishes a catch. Manually cast once with the rod selected to start the loop. To stop the loop, change the equipped action-bar slot away from the fishing rod (for example, switch from the rod slot to a watering can slot).");
             _autoReel = Config.Bind("General", "Auto Reel", false,
                 "Automatically reels in when a real bite occurs. With Instant Catch enabled, this immediately catches the fish.");
             _autoFishPlayer = Config.Bind("General", "Auto Recast Rod Player", 1,
