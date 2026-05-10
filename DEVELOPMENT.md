@@ -133,7 +133,6 @@ No Bar Decrease
 Dont use bait
 Auto Reel
 Auto Recast Rod
-Auto Recast Rod Player
 Auto Recast Rod Delay
 Remove Recast Delay
 

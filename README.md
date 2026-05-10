@@ -30,7 +30,6 @@ The following settings are created in `BepInEx\config\net.bepinex.trvlrest.trave
 | `Dont use bait` | `false` | Prevents bait from being consumed while fishing. Default: `false`. |
 | `Auto Reel` | `false` | Automatically reels in when a real bite occurs. If `Instant Catch` is enabled, the fish is caught immediately. Default: `false`. |
 | `Auto Recast Rod` | `false` | Automatically recasts the selected fishing rod after a catch finishes. Cast manually once with the rod selected to start the session. To stop it, switch away from the fishing rod on the action bar. When enabled, the mod also handles reeling so the recast loop can continue. Default: `false`. |
-| `Auto Recast Rod Player` | `1` | Player number used by Auto Recast Rod. Use `1` for the local single-player character. Supported values are `1` to `2`. Default: `1`. |
 | `Auto Recast Rod Delay` | `1.25` | Seconds Auto Recast Rod waits between recast attempts. Values below `1.25` are treated as `1.25`. Default: `1.25`. |
 | `Remove Recast Delay` | `false` | Removes the extra post-catch delay so you can cast again sooner after rewards are granted. Default: `false`. |
 | `Debug Logging` | `false` | Writes additional diagnostic information to the BepInEx log and console. Default: `false`. |
