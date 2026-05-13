@@ -70,12 +70,22 @@ namespace TravellersRestFishingTweaks
         private static readonly float[] _lastHookSetBaitAtByPlayer = new float[5];
         private static readonly float[] _lastAutoReelDirectFinishAtByPlayer = new float[5];
         private static readonly float[] _autoReelLastArmLogAtByPlayer = new float[5];
+        private static readonly float[] _lastRodActionAcceptedAtByPlayer = new float[5];
+        private static readonly float[] _lastRodActionSuppressedAtByPlayer = new float[5];
         private static int _lastAutoReelPollFrame = -1;
         private static string _autoReelCoroutineMethod = string.Empty;
         private static float _nextAutoReelCoroutineDiagAt;
         private static readonly float[] _lastFinishFishingAtByPlayer = new float[5];
+        private static readonly float[] _lastEndSelectedUseAtByPlayer = new float[5];
+        private static readonly float[] _lastEndSelectedUseFinishAtByPlayer = new float[5];
         private static readonly float[] _lastRemoveRecastCleanupAtByPlayer = new float[5];
         private static readonly float[] _removeRecastDelayCleanupAtByPlayer = new float[5];
+        private static readonly float[] _recastUnlockWindowUntilByPlayer = new float[5];
+        private static readonly float[] _recastUnlockWindowFinishAtByPlayer = new float[5];
+        private static readonly float[] _nextRecastUnlockDiagAtByPlayer = new float[5];
+        private static readonly bool[] _pendingRecastByPlayer = new bool[5];
+        private static readonly GameObject[] _preservedFishResultVisualByPlayer = new GameObject[5];
+        private static readonly float[] _preservedFishResultVisualUntilByPlayer = new float[5];
         private static int _lastRemoveRecastDelayPollFrame = -1;
         private static readonly HashSet<int> _baitItemIds = new HashSet<int> { 1444, 1445, 1446, 1447, 1448 };
         private static readonly Dictionary<int, string> _baitNamesByItemId = new Dictionary<int, string>
@@ -91,7 +101,8 @@ namespace TravellersRestFishingTweaks
         private const int MaxSafePlayerNum = 2;
         private const int AutoFishPlayer = 1;
 
-        private const string BuildProofStamp = "20260510-legacy-config-cleanup";
+        private const string BuildProofStamp = "20260513-recast-zero-all-waits";
+        private const float RecastUnlockWindowDuration = 2.0f;
 
         private const float MinAutoRecastDelay = 1.25f;
         private const float AutoRecastPostFinishSettle = 1.25f;
@@ -101,9 +112,22 @@ namespace TravellersRestFishingTweaks
         private const float AutoRecastEndUseDelay = 0.15f;
         private const float AutoReelDirectFinishMinBaitAge = 0.50f;
         private const float QuickBitesMinFishingAge = 0.25f;
+        private const float DuplicateRodActionWindow = 0.35f;
+        private const float FishResultDisplayMinTime = 1.25f;
+        private const string PreservedFishResultVisualSuffix = ".EasyFishingPreservedResult";
 
         private static readonly FieldInfo FishingControllerSettings =
             AccessTools.Field(typeof(FishingController), "settings");
+
+        private static readonly Dictionary<string, float> _nextInputButtonDiagAtByPlayerButton = new Dictionary<string, float>();
+        private static readonly Dictionary<string, float> _nextQuickBitesDiagAtByPlayerReason = new Dictionary<string, float>();
+        private static readonly Dictionary<string, float> _nextStateOnlyCleanupDiagAtByPlayerSource = new Dictionary<string, float>();
+        private static readonly Dictionary<string, float> _nextObservedCompletedSessionDiagAtByPlayerSource = new Dictionary<string, float>();
+        private static readonly float[] _nextCompletedStateHeartbeatAtByPlayer = new float[5];
+        private static GameObject _preservedFishResultRoot;
+        private static MethodInfo _rodActionEndMethod;
+        private static MethodInfo _rodActionEndFallbackMethod;
+        private static bool _commonReferencesWait1_5Zeroed = false;
 
         private static readonly FieldInfo FishingUISettings = AccessTools.Field(typeof(FishingUI), "settings");
         private static readonly FieldInfo FishingUIFishIcon = AccessTools.Field(typeof(FishingUI), "fishIcon");
@@ -198,6 +222,7 @@ namespace TravellersRestFishingTweaks
             var slotConsumeOneAliasMethod = ResolveMethod(typeof(Slot), "MBCIJPPOGJG", new[] { typeof(bool) });
             var slotSetStackMethod = ResolveMethod(typeof(Slot), "BGJPNGLONLP", new[] { typeof(int), typeof(bool), typeof(bool) });
             var playerInputsGetButtonDownMethod = ResolveMethod(typeof(PlayerInputs), "GetButtonDown", new[] { typeof(string) });
+            var playerInputsGetButtonMethod = ResolveMethod(typeof(PlayerInputs), "GetButton", new[] { typeof(string) });
             var playerInputsJcmButtonDownMethod = ResolveMethod(typeof(PlayerInputs), "JCMOPOMLPLL", new[] { typeof(string) });
             var playerInputsDlfButtonDownMethod = ResolveMethod(typeof(PlayerInputs), "DLFAMOCKNMA", new[] { typeof(string) });
             var monoBehaviourStartCoroutineMethod = ResolveMethod(typeof(MonoBehaviour), "StartCoroutine", new[] { typeof(IEnumerator) });
@@ -231,6 +256,7 @@ namespace TravellersRestFishingTweaks
             DebugLog($"Target resolution: Slot.MBCIJPPOGJG(bool) => {(slotConsumeOneAliasMethod != null ? "FOUND" : "MISSING")}");
             DebugLog($"Target resolution: Slot.BGJPNGLONLP(int,bool,bool) => {(slotSetStackMethod != null ? "FOUND" : "MISSING")}");
             DebugLog($"Target resolution: PlayerInputs.GetButtonDown(string) => {(playerInputsGetButtonDownMethod != null ? "FOUND" : "MISSING")}");
+            DebugLog($"Target resolution: PlayerInputs.GetButton(string) => {(playerInputsGetButtonMethod != null ? "FOUND" : "MISSING")}");
             DebugLog($"Target resolution: PlayerInputs.JCMOPOMLPLL(string) => {(playerInputsJcmButtonDownMethod != null ? "FOUND" : "MISSING")}");
             DebugLog($"Target resolution: PlayerInputs.DLFAMOCKNMA(string) => {(playerInputsDlfButtonDownMethod != null ? "FOUND" : "MISSING")}");
             DebugLog($"Target resolution: MonoBehaviour.StartCoroutine(IEnumerator) => {(monoBehaviourStartCoroutineMethod != null ? "FOUND" : "MISSING")}");
@@ -268,6 +294,9 @@ namespace TravellersRestFishingTweaks
                 var rodAnimStartMethod = ResolveMethod(typeof(Rod), "JGNPMBNGKNG", new[] { typeof(int) });
                 var rodAnimHitMethod = ResolveMethod(typeof(Rod), "HNCGNIJLEMH", new[] { typeof(int) });
                 var rodAnimEndMethod = ResolveMethod(typeof(Rod), "NAIECLGMMJA", new[] { typeof(int) });
+                var rodActionEndMethod = ResolveMethod(typeof(Rod), "ActionEnd", new[] { typeof(int) });
+                _rodActionEndMethod = rodActionEndMethod;
+                _rodActionEndFallbackMethod = rodAnimEndMethod;
 
                 var animatorToolStartMethod = ResolveMethod(typeof(CharacterAnimator), nameof(CharacterAnimator.ToolStart), Type.EmptyTypes);
                 var animatorToolHitMethod = ResolveMethod(typeof(CharacterAnimator), nameof(CharacterAnimator.ToolHit), Type.EmptyTypes);
@@ -322,8 +351,42 @@ namespace TravellersRestFishingTweaks
                 PatchWithLogging("Slot.MBCIJPPOGJG(bool)", slotConsumeOneAliasMethod, slotConsumeOnePrefix, isPrefix: true);
                 PatchWithLogging("Slot.BGJPNGLONLP(int,bool,bool)", slotSetStackMethod, slotSetStackPrefix, isPrefix: true);
                 PatchWithLogging("PlayerInputs.GetButtonDown(string)", playerInputsGetButtonDownMethod, playerInputsGetButtonDownPrefix, isPrefix: true);
+                PatchWithLogging("PlayerInputs.GetButton(string)", playerInputsGetButtonMethod, playerInputsGetButtonDownPrefix, isPrefix: true);
                 PatchWithLogging("PlayerInputs.JCMOPOMLPLL(string)", playerInputsJcmButtonDownMethod, playerInputsGetButtonDownPrefix, isPrefix: true);
                 PatchWithLogging("PlayerInputs.DLFAMOCKNMA(string)", playerInputsDlfButtonDownMethod, playerInputsGetButtonDownPrefix, isPrefix: true);
+                var playerInputsPatched = new HashSet<MethodBase>();
+                if (playerInputsGetButtonDownMethod != null)
+                    playerInputsPatched.Add(playerInputsGetButtonDownMethod);
+                if (playerInputsGetButtonMethod != null)
+                    playerInputsPatched.Add(playerInputsGetButtonMethod);
+                if (playerInputsJcmButtonDownMethod != null)
+                    playerInputsPatched.Add(playerInputsJcmButtonDownMethod);
+                if (playerInputsDlfButtonDownMethod != null)
+                    playerInputsPatched.Add(playerInputsDlfButtonDownMethod);
+
+                foreach (var method in typeof(PlayerInputs).GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                {
+                    try
+                    {
+                        if (method == null || method.IsSpecialName)
+                            continue;
+                        if (playerInputsPatched.Contains(method))
+                            continue;
+                        if (method.ReturnType != typeof(bool))
+                            continue;
+                        var parameters = method.GetParameters();
+                        if (parameters.Length != 1 || parameters[0].ParameterType != typeof(string))
+                            continue;
+
+                        _harmony.Patch(method, prefix: new HarmonyMethod(playerInputsGetButtonDownPrefix));
+                        playerInputsPatched.Add(method);
+                        DebugLog($"Dynamic patch PlayerInputs.{method.Name}(string) => PREFIX");
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLog($"Dynamic patch failed PlayerInputs.{method?.Name}: {ex.GetType().Name}: {ex.Message}");
+                    }
+                }
                 PatchWithLogging("MonoBehaviour.StartCoroutine(IEnumerator)", monoBehaviourStartCoroutineMethod, monoBehaviourStartCoroutinePrefix, isPrefix: true);
                 foreach (var moveNext in fishingCoroutineMoveNextMethods)
                 {
@@ -346,6 +409,7 @@ namespace TravellersRestFishingTweaks
                 PatchWithLogging("Rod.JGNPMBNGKNG(int)", rodAnimStartMethod, rodAnimStagePrefix, isPrefix: true);
                 PatchWithLogging("Rod.HNCGNIJLEMH(int)", rodAnimHitMethod, rodAnimStagePrefix, isPrefix: true);
                 PatchWithLogging("Rod.NAIECLGMMJA(int)", rodAnimEndMethod, rodAnimStagePrefix, isPrefix: true);
+                DebugLog($"Target resolution: Rod.ActionEnd(int) => {(rodActionEndMethod != null ? "FOUND" : "MISSING")}");
                 PatchWithLogging("CharacterAnimator.ToolStart()", animatorToolStartMethod, animatorToolStagePrefix, isPrefix: true);
                 PatchWithLogging("CharacterAnimator.ToolHit()", animatorToolHitMethod, animatorToolStagePrefix, isPrefix: true);
                 PatchWithLogging("CharacterAnimator.ToolEnd()", animatorToolEndMethod, animatorToolStagePrefix, isPrefix: true);
@@ -424,6 +488,7 @@ namespace TravellersRestFishingTweaks
                 LogPatchInfo("Slot.MBCIJPPOGJG(bool)", slotConsumeOneAliasMethod);
                 LogPatchInfo("Slot.BGJPNGLONLP(int,bool,bool)", slotSetStackMethod);
                 LogPatchInfo("PlayerInputs.GetButtonDown(string)", playerInputsGetButtonDownMethod);
+                LogPatchInfo("PlayerInputs.GetButton(string)", playerInputsGetButtonMethod);
                 LogPatchInfo("PlayerInputs.JCMOPOMLPLL(string)", playerInputsJcmButtonDownMethod);
                 LogPatchInfo("PlayerInputs.DLFAMOCKNMA(string)", playerInputsDlfButtonDownMethod);
                 LogPatchInfo("MonoBehaviour.StartCoroutine(IEnumerator)", monoBehaviourStartCoroutineMethod);
@@ -1484,6 +1549,36 @@ namespace TravellersRestFishingTweaks
             }
         }
 
+        private static bool IsDuplicateRodAction(int playerNum)
+        {
+            if (playerNum < MinSafePlayerNum || playerNum > MaxSafePlayerNum || playerNum >= _lastRodActionAcceptedAtByPlayer.Length)
+                return false;
+
+            var lastAcceptedAt = _lastRodActionAcceptedAtByPlayer[playerNum];
+            return lastAcceptedAt > 0f && Time.realtimeSinceStartup - lastAcceptedAt < DuplicateRodActionWindow;
+        }
+
+        private static void MarkRodActionAccepted(int playerNum)
+        {
+            if (playerNum < MinSafePlayerNum || playerNum > MaxSafePlayerNum || playerNum >= _lastRodActionAcceptedAtByPlayer.Length)
+                return;
+
+            _lastRodActionAcceptedAtByPlayer[playerNum] = Time.realtimeSinceStartup;
+        }
+
+        private static bool ShouldSuppressDuplicateRodActionLog(int playerNum)
+        {
+            if (playerNum < MinSafePlayerNum || playerNum > MaxSafePlayerNum || playerNum >= _lastRodActionSuppressedAtByPlayer.Length)
+                return false;
+
+            var now = Time.realtimeSinceStartup;
+            if (now - _lastRodActionSuppressedAtByPlayer[playerNum] < 0.75f)
+                return true;
+
+            _lastRodActionSuppressedAtByPlayer[playerNum] = now;
+            return false;
+        }
+
         private static bool IsControllerFishingCameraActive(FishingController controller)
         {
             if (controller == null)
@@ -2092,14 +2187,94 @@ namespace TravellersRestFishingTweaks
 
         static bool PlayerInputsButtonDownAnyPrefix(PlayerInputs __instance, string __0, ref bool __result, MethodBase __originalMethod)
         {
-            // Diagnostics-only. Do not inject global input: it can close menus and still won't
-            // update the fishing coroutine's local startFishMinigame state.
+            if (_debugLogging?.Value != true || !IsRemoveRecastDelayEnabled())
+                return true;
+
+            var resolvedPlayer = TryResolvePlayerInputs(__instance, out var playerNum);
+            var recentFinishWindow = resolvedPlayer && IsWithinRecentFinishWindow(playerNum, 5f);
+            if (!recentFinishWindow && !MatchesInputKeyword(__0))
+                return true;
+
+            var key = $"{(resolvedPlayer ? playerNum.ToString() : "?")}:{__originalMethod?.Name}:{__0}";
+            var now = Time.realtimeSinceStartup;
+            if (_nextInputButtonDiagAtByPlayerButton.TryGetValue(key, out var nextAt) && now < nextAt)
+                return true;
+            _nextInputButtonDiagAtByPlayerButton[key] = now + 0.25f;
+
+            try
+            {
+                var controller = resolvedPlayer ? GetFishingControllerSafe(playerNum) : null;
+                var hook = controller == null ? null : Traverse.Create(controller).Field("fishingHook")?.GetValue() as FishingHook;
+                var useObject = resolvedPlayer ? UseObject.GetPlayer(playerNum) : null;
+                var buttonDown = SafeMemberReadAsString(useObject, "buttonDown");
+                var actionToolDone = SafeMemberReadAsString(useObject, "actionToolDone");
+                var uiOpen = false;
+                var uiContentActive = false;
+                var sinceFinish = -1f;
+                var sinceCleanup = -1f;
+                var mainUiOpen = false;
+
+                if (resolvedPlayer)
+                {
+                    var fishingUi = FishingUI.Get(playerNum);
+                    uiOpen = fishingUi != null && fishingUi.IsOpen();
+                    uiContentActive = fishingUi?.content != null && fishingUi.content.activeInHierarchy;
+                    sinceFinish = playerNum < _lastFinishFishingAtByPlayer.Length && _lastFinishFishingAtByPlayer[playerNum] > 0f ? now - _lastFinishFishingAtByPlayer[playerNum] : -1f;
+                    sinceCleanup = playerNum < _lastRemoveRecastCleanupAtByPlayer.Length && _lastRemoveRecastCleanupAtByPlayer[playerNum] > 0f ? now - _lastRemoveRecastCleanupAtByPlayer[playerNum] : -1f;
+                    mainUiOpen = SafeMainUiOpen(playerNum);
+                }
+
+                var inputKind = (__originalMethod?.Name?.IndexOf("Down", StringComparison.OrdinalIgnoreCase) ?? -1) >= 0 ? "down" : "held";
+
+                DebugLog(
+                    $"EASYFISHING_INPUT_BUTTON player={(resolvedPlayer ? playerNum.ToString() : "unresolved")} method={__originalMethod?.Name} input={inputKind} button={__0} " +
+                    $"sinceFinish={sinceFinish:0.000} sinceCleanup={sinceCleanup:0.000} " +
+                    $"uiOpen={uiOpen} uiContentActive={uiContentActive} mainUiOpen={mainUiOpen} recentWindow={recentFinishWindow} " +
+                    $"fishing={controller?.fishing} fishingCamera={(controller != null && IsControllerFishingCameraActive(controller))} " +
+                    $"hookActive={(hook?.gameObject != null && hook.gameObject.activeInHierarchy)} fishInfoActive={(hook?.fishInfo != null && hook.fishInfo.activeInHierarchy)} " +
+                    $"rodSelected={(resolvedPlayer && IsRodSelectedForPlayer(playerNum))} useButtonDown={buttonDown} useActionToolDone={actionToolDone}");
+            }
+            catch (Exception ex)
+            {
+                DebugLog($"EASYFISHING_INPUT_BUTTON_DIAG_FAILED player={(resolvedPlayer ? playerNum.ToString() : "unresolved")} button={__0}: {ex.GetType().Name}: {ex.Message}");
+            }
+
             return true;
+        }
+
+        private static bool IsWithinRecentFinishWindow(int playerNum, float seconds)
+        {
+            if (playerNum < MinSafePlayerNum || playerNum > MaxSafePlayerNum)
+                return false;
+
+            var now = Time.realtimeSinceStartup;
+            var sinceFinish = playerNum < _lastFinishFishingAtByPlayer.Length && _lastFinishFishingAtByPlayer[playerNum] > 0f ? now - _lastFinishFishingAtByPlayer[playerNum] : 999f;
+            var sinceCleanup = playerNum < _lastRemoveRecastCleanupAtByPlayer.Length && _lastRemoveRecastCleanupAtByPlayer[playerNum] > 0f ? now - _lastRemoveRecastCleanupAtByPlayer[playerNum] : 999f;
+            return sinceFinish <= seconds || sinceCleanup <= seconds;
+        }
+
+        private static bool MatchesInputKeyword(string buttonName)
+        {
+            if (string.IsNullOrEmpty(buttonName))
+                return false;
+
+            return buttonName.IndexOf("use", StringComparison.OrdinalIgnoreCase) >= 0
+                   || buttonName.IndexOf("interact", StringComparison.OrdinalIgnoreCase) >= 0
+                   || buttonName.IndexOf("action", StringComparison.OrdinalIgnoreCase) >= 0
+                   || buttonName.IndexOf("mouse", StringComparison.OrdinalIgnoreCase) >= 0
+                   || buttonName.IndexOf("tool", StringComparison.OrdinalIgnoreCase) >= 0
+                   || buttonName.IndexOf("select", StringComparison.OrdinalIgnoreCase) >= 0
+                   || buttonName.IndexOf("item", StringComparison.OrdinalIgnoreCase) >= 0
+                   || buttonName.IndexOf("ui", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static bool IsFishingUseButtonName(string name)
         {
-            return string.Equals(name, "Use", StringComparison.Ordinal) || string.Equals(name, "LeftMouseDetect", StringComparison.Ordinal);
+            return string.Equals(name, "Use", StringComparison.Ordinal) ||
+                   string.Equals(name, "LeftMouseDetect", StringComparison.Ordinal) ||
+                   string.Equals(name, "Interact", StringComparison.Ordinal) ||
+                   string.Equals(name, "Action", StringComparison.Ordinal) ||
+                   string.Equals(name, "UseTool", StringComparison.Ordinal);
         }
 
         private static bool TryResolvePlayerInputs(PlayerInputs inputs, out int playerNum)
@@ -2297,13 +2472,12 @@ namespace TravellersRestFishingTweaks
             {
                 if (fishingUi.IsOpen())
                 {
-                    fishingUi.CloseUI();
-                    Log.LogInfo($"EASYFISHING_INSTANT_CATCH_UI_CLOSED source={source} player={fishingUi.JIIGOACEIKL}");
+                    DebugLog($"EASYFISHING_INSTANT_CATCH_UI_LEFT_OPEN source={source} player={fishingUi.JIIGOACEIKL}");
                 }
             }
             catch (Exception ex)
             {
-                LogThrottledDiagnostic($"TravellersRestFishingTweaks: {source}: failed closing FishingUI: {ex.GetType().Name}: {ex.Message}");
+                LogThrottledDiagnostic($"TravellersRestFishingTweaks: {source}: failed checking FishingUI open state: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
@@ -2316,6 +2490,7 @@ namespace TravellersRestFishingTweaks
             var playerNum = __instance?.playerNum ?? -1;
             if (playerNum >= MinSafePlayerNum && playerNum <= MaxSafePlayerNum)
             {
+                ClearPreservedFishResultVisual(playerNum, "fishing_start");
                 _lastFishingStartAtByPlayer[playerNum] = Time.realtimeSinceStartup;
                 _lastHookSetBaitAtByPlayer[playerNum] = 0f;
                 ClearBiteList(__instance, $"fishing_start:{__originalMethod?.Name}");
@@ -2391,17 +2566,27 @@ namespace TravellersRestFishingTweaks
 
                 if (!IsFishingSessionActive(controller))
                 {
-                    DebugLog($"EASYFISHING_QUICK_BITES_DIAG player={playerNum} reason=session_not_ready proceeding=True bites={controller.bitesList.Count}");
+                    LogQuickBitesDiagThrottled(playerNum, "session_not_ready", $"proceeding=True bites={controller.bitesList.Count}");
                 }
 
                 if (_lastFinishFishingAtByPlayer[playerNum] > _lastFishingStartAtByPlayer[playerNum])
                 {
-                    DebugLog($"EASYFISHING_QUICK_BITES_DIAG player={playerNum} reason=post_finish_stale proceeding=True bites={controller.bitesList.Count}");
+                    if (IsFishingSessionActive(controller))
+                    {
+                        _lastFishingStartAtByPlayer[playerNum] = Time.realtimeSinceStartup;
+                        LogQuickBitesDiagThrottled(playerNum, "observed_new_session_after_finish", $"recovered=True bites={controller.bitesList.Count}");
+                    }
+                    else
+                    {
+                        LogQuickBitesDiagThrottled(playerNum, "post_finish_stale", $"sessionActive=False clearing=True bites={controller.bitesList.Count}");
+                        ClearBiteList(controller, "QuickBitesPostFinishStaleNoSession");
+                        continue;
+                    }
                 }
 
                 if (!HasFishingStartedSettled(playerNum, QuickBitesMinFishingAge, out var fishingAge, out var fishingReason))
                 {
-                    DebugLog($"EASYFISHING_QUICK_BITES_DIAG player={playerNum} reason={fishingReason} proceeding=True fishingAge={fishingAge:0.000} bites={controller.bitesList.Count}");
+                    LogQuickBitesDiagThrottled(playerNum, fishingReason, $"proceeding=True fishingAge={fishingAge:0.000} bites={controller.bitesList.Count}");
                 }
 
                 var shouldNormalize = controller.bitesList.Count > 1;
@@ -2536,9 +2721,23 @@ namespace TravellersRestFishingTweaks
         static bool RodActionPrefix(int __0, bool __1, MethodBase __originalMethod)
         {
             if (__1)
+            {
+                if (IsRemoveRecastDelayEnabled())
+                    TryClearCompletedFishingHook(__0, "manual-recast-input");
+
+                if (IsDuplicateRodAction(__0))
+                {
+                    if (!ShouldSuppressDuplicateRodActionLog(__0))
+                        DebugLog($"EASYFISHING_DUPLICATE_ROD_ACTION_BLOCKED player={__0} method={__originalMethod?.Name} window={DuplicateRodActionWindow:0.000}");
+                    return false;
+                }
+
                 MarkBaitProtection(__0, 8f);
+            }
 
             LogRecastAttemptDiagnostics(__0, __originalMethod?.Name, "prefix");
+            if (ShouldLogInputPipeline(__0, __1, -1))
+                LogInputPipeline(__0, __originalMethod?.Name, "Rod.prefix", __1, -1, true);
 
             DebugLog($"Diag Rod.{__originalMethod?.Name} prefix player={__0} pressed={__1}");
             return true;
@@ -2547,10 +2746,17 @@ namespace TravellersRestFishingTweaks
         static void RodActionPostfix(int __0, bool __1, bool __result, MethodBase __originalMethod)
         {
             if (__result)
+            {
                 MarkBaitProtection(__0, 8f);
+                if (__1)
+                    MarkRodActionAccepted(__0);
+            }
 
             if (!__result)
                 LogRecastAttemptDiagnostics(__0, __originalMethod?.Name, "postfix-failed");
+
+            if (ShouldLogInputPipeline(__0, __1, -1))
+                LogInputPipeline(__0, __originalMethod?.Name, "Rod.postfix", __1, -1, __result);
 
             DebugLog($"Diag Rod.{__originalMethod?.Name} postfix player={__0} pressed={__1} result={__result}");
         }
@@ -2629,6 +2835,9 @@ namespace TravellersRestFishingTweaks
                     StartAutoRecastSession(playerNum, "manual_cast");
             }
 
+            if (ShouldLogInputPipeline(playerNum, __0, __2))
+                LogInputPipeline(playerNum, "UseSelectedItem", "UseObject.postfix", __0, __2, __result);
+
             DebugLog($"Diag UseObject.UseSelectedItem player={playerNum} pressed={__0} allow={__1} actionIndex={__2} result={__result}");
         }
 
@@ -2640,7 +2849,78 @@ namespace TravellersRestFishingTweaks
             if (__result && __5 == 1)
                 ArmAutoRecastSessionIfEligible(__0, "action_selected_item");
 
+            if (ShouldLogInputPipeline(__0, __1, __5))
+                LogInputPipeline(__0, "ActionSelectedItem", "ActionBarInventory.postfix", __1, __5, __result);
+
             DebugLog($"Diag ActionBarInventory.ActionSelectedItem player={__0} pressed={__1} allow={__2} objectClick={__3} skip={__4} actionIndex={__5} result={__result}");
+        }
+
+        private static bool ShouldLogInputPipeline(int playerNum, bool pressed, int actionIndex)
+        {
+            if (_debugLogging?.Value != true || !IsRemoveRecastDelayEnabled())
+                return false;
+
+            if (pressed || actionIndex == 1)
+                return true;
+
+            if (playerNum < MinSafePlayerNum || playerNum > MaxSafePlayerNum)
+                return false;
+
+            var now = Time.realtimeSinceStartup;
+            var sinceFinish = playerNum < _lastFinishFishingAtByPlayer.Length && _lastFinishFishingAtByPlayer[playerNum] > 0f ? now - _lastFinishFishingAtByPlayer[playerNum] : 999f;
+            var sinceCleanup = playerNum < _lastRemoveRecastCleanupAtByPlayer.Length && _lastRemoveRecastCleanupAtByPlayer[playerNum] > 0f ? now - _lastRemoveRecastCleanupAtByPlayer[playerNum] : 999f;
+            return sinceFinish <= 5f || sinceCleanup <= 5f;
+        }
+
+        private static void LogInputPipeline(int playerNum, string methodName, string source, bool pressed, int actionIndex, bool result)
+        {
+            try
+            {
+                var now = Time.realtimeSinceStartup;
+                var controller = GetFishingControllerSafe(playerNum);
+                var hook = controller == null ? null : Traverse.Create(controller).Field("fishingHook")?.GetValue() as FishingHook;
+                var useObject = playerNum >= MinSafePlayerNum && playerNum <= MaxSafePlayerNum ? UseObject.GetPlayer(playerNum) : null;
+                var buttonDown = SafeMemberReadAsString(useObject, "buttonDown");
+                var actionToolDone = SafeMemberReadAsString(useObject, "actionToolDone");
+                var sinceFinish = playerNum < _lastFinishFishingAtByPlayer.Length && _lastFinishFishingAtByPlayer[playerNum] > 0f ? now - _lastFinishFishingAtByPlayer[playerNum] : -1f;
+                var sinceCleanup = playerNum < _lastRemoveRecastCleanupAtByPlayer.Length && _lastRemoveRecastCleanupAtByPlayer[playerNum] > 0f ? now - _lastRemoveRecastCleanupAtByPlayer[playerNum] : -1f;
+                var uiOpen = false;
+                var uiContentActive = false;
+                try
+                {
+                    var fishingUi = FishingUI.Get(playerNum);
+                    uiOpen = fishingUi != null && fishingUi.IsOpen();
+                    uiContentActive = fishingUi?.content != null && fishingUi.content.activeInHierarchy;
+                }
+                catch
+                {
+                }
+
+                DebugLog(
+                    $"EASYFISHING_INPUT_PIPELINE source={source} player={playerNum} method={methodName} pressed={pressed} actionIndex={actionIndex} result={result} " +
+                    $"sinceFinish={sinceFinish:0.000} sinceCleanup={sinceCleanup:0.000} uiOpen={uiOpen} uiContentActive={uiContentActive} mainUiOpen={SafeMainUiOpen(playerNum)} " +
+                    $"fishing={controller?.fishing} fishingCamera={(controller != null && IsControllerFishingCameraActive(controller))} " +
+                    $"hookActive={(hook?.gameObject != null && hook.gameObject.activeInHierarchy)} fishInfoActive={(hook?.fishInfo != null && hook.fishInfo.activeInHierarchy)} " +
+                    $"rodSelected={IsRodSelectedForPlayer(playerNum)} useButtonDown={buttonDown} useActionToolDone={actionToolDone}");
+            }
+            catch (Exception ex)
+            {
+                DebugLog($"EASYFISHING_INPUT_PIPELINE_FAILED player={playerNum} method={methodName}: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        private static void LogQuickBitesDiagThrottled(int playerNum, string reason, string details)
+        {
+            if (_debugLogging?.Value != true)
+                return;
+
+            var key = $"{playerNum}:{reason}";
+            var now = Time.realtimeSinceStartup;
+            if (_nextQuickBitesDiagAtByPlayerReason.TryGetValue(key, out var nextAt) && now < nextAt)
+                return;
+
+            _nextQuickBitesDiagAtByPlayerReason[key] = now + 1.0f;
+            DebugLog($"EASYFISHING_QUICK_BITES_DIAG player={playerNum} reason={reason} {details}");
         }
 
         static void ActionBarMbohPostfix(ActionBarInventory __instance, object __result)
@@ -2715,13 +2995,43 @@ namespace TravellersRestFishingTweaks
                 if (settings == null)
                     return;
 
+                var changed = Math.Abs(settings.rollUpWaitTime) > 0.0001f || Math.Abs(settings.rollUpTime - 0.01f) > 0.0001f;
                 settings.rollUpWaitTime = 0f;
                 settings.rollUpTime = 0.01f;
-                DebugLog($"EASYFISHING_REMOVE_RECAST_DELAY_SETTINGS_APPLIED source={source} player={controller.playerNum}");
+                if (changed)
+                    DebugLog($"EASYFISHING_REMOVE_RECAST_DELAY_SETTINGS_APPLIED source={source} player={controller.playerNum}");
             }
             catch (Exception ex)
             {
                 LogThrottledDiagnostic($"Remove Recast Delay settings failed source={source}: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            // Zero out CommonReferences wait fields used in the FinishFishing coroutine.
+            // The coroutine uses wait1_5 three times (4.5s total) plus potentially wait1, wait05, etc.
+            // Replacing them all with near-zero makes the post-catch animation instant.
+            try
+            {
+                if (!_commonReferencesWait1_5Zeroed)
+                {
+                    var waitFields = new[] { "wait1_5", "wait1", "wait05", "wait2", "wait2_5", "wait3", "wait3_5", "wait4", "wait5" };
+                    var zeroed = new System.Collections.Generic.List<string>();
+                    foreach (var fieldName in waitFields)
+                    {
+                        var f = typeof(CommonReferences).GetField(fieldName,
+                            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                        if (f != null)
+                        {
+                            f.SetValue(null, new WaitForSeconds(0.01f));
+                            zeroed.Add(fieldName);
+                        }
+                    }
+                    _commonReferencesWait1_5Zeroed = true;
+                    Log.LogInfo($"EASYFISHING_REMOVE_RECAST_DELAY_WAITS_ZEROED source={source} fields={string.Join(",", zeroed)}");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogThrottledDiagnostic($"Remove Recast Delay wait zero failed source={source}: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
@@ -3107,6 +3417,521 @@ namespace TravellersRestFishingTweaks
             }
         }
 
+        static void CloseFishingUiForRemoveRecastDelay(int playerNum, string source)
+        {
+            try
+            {
+                var ui = FishingUI.Get(playerNum);
+                if (ui == null)
+                    return;
+
+                var wasOpen = false;
+                var contentActive = false;
+                try
+                {
+                    wasOpen = ui.IsOpen();
+                    contentActive = ui.content != null && ui.content.activeInHierarchy;
+                }
+                catch
+                {
+                }
+
+                ui.CloseUI();
+                ui.fish = null;
+                Log.LogInfo($"EASYFISHING_REMOVE_RECAST_DELAY_UI_CLOSED player={playerNum} source={source} wasOpen={wasOpen} contentActive={contentActive}");
+            }
+            catch (Exception ex)
+            {
+                LogThrottledDiagnostic($"EASYFISHING_REMOVE_RECAST_DELAY_UI_CLOSE_FAILED player={playerNum} source={source}: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        static bool IsRemoveRecastGameplayCleanupSource(string source)
+        {
+            return source == "reward-seen"
+                || source == "completed-state"
+                || source == "auto-recast-gate";
+        }
+
+        static void EnsureObservedCompletedFishingSession(int playerNum, string source, bool fishInfoActive, bool hookActive, FishingController controller)
+        {
+            if (playerNum < MinSafePlayerNum || playerNum > MaxSafePlayerNum)
+                return;
+            if (controller == null)
+                return;
+            if (!(source == "completed-state" || source == "reward-seen" || source == "manual-recast-input"))
+                return;
+            if (controller.fishing || IsControllerFishingCameraActive(controller))
+                return;
+
+            var hasActiveResult = fishInfoActive || hookActive;
+            var hasUiFish = HasFishingUiFish(playerNum);
+
+            if (source == "completed-state" && !hasActiveResult)
+                return;
+            if ((source == "reward-seen" || source == "manual-recast-input") && !hasActiveResult && !hasUiFish)
+                return;
+
+            var now = Time.realtimeSinceStartup;
+            var changed = false;
+            var mode = string.Empty;
+            var finishAt = playerNum < _lastFinishFishingAtByPlayer.Length ? _lastFinishFishingAtByPlayer[playerNum] : 0f;
+            var startAt = playerNum < _lastFishingStartAtByPlayer.Length ? _lastFishingStartAtByPlayer[playerNum] : 0f;
+
+            if (hasActiveResult)
+            {
+                var missingFinish = finishAt <= 0f;
+                var staleFinish = !missingFinish && now - finishAt >= FishResultDisplayMinTime;
+                if (missingFinish || staleFinish)
+                {
+                    finishAt = now;
+                    _lastFinishFishingAtByPlayer[playerNum] = finishAt;
+                    _lastFishingStartAtByPlayer[playerNum] = finishAt - 0.001f;
+                    changed = true;
+                    mode = staleFinish ? "refresh" : "seed";
+                }
+            }
+            else if (finishAt <= 0f)
+            {
+                finishAt = now;
+                _lastFinishFishingAtByPlayer[playerNum] = finishAt;
+                startAt = finishAt - 0.001f;
+                _lastFishingStartAtByPlayer[playerNum] = startAt;
+                changed = true;
+                mode = "seed";
+            }
+
+            if (!changed && finishAt > 0f && startAt <= 0f)
+            {
+                startAt = finishAt - 0.001f;
+                _lastFishingStartAtByPlayer[playerNum] = startAt;
+                changed = true;
+                mode = "seed";
+            }
+
+            if (!changed)
+                return;
+
+            var key = $"{playerNum}:{source}";
+            if (!_nextObservedCompletedSessionDiagAtByPlayerSource.TryGetValue(key, out var nextAt) || now >= nextAt)
+            {
+                _nextObservedCompletedSessionDiagAtByPlayerSource[key] = now + 2f;
+                DebugLog($"EASYFISHING_OBSERVED_COMPLETED_SESSION player={playerNum} source={source} mode={mode} finishAt={finishAt:0.000} startAt={startAt:0.000} hookActive={hookActive} fishInfoActive={fishInfoActive}");
+            }
+        }
+
+        static bool TryEndCompletedFishingSelectedUse(int playerNum, string source, float finishAt)
+        {
+            if (playerNum < MinSafePlayerNum || playerNum > MaxSafePlayerNum || playerNum >= _lastEndSelectedUseAtByPlayer.Length)
+                return false;
+            if (finishAt <= 0f)
+                return false;
+            if (_lastEndSelectedUseFinishAtByPlayer[playerNum] == finishAt)
+                return false;
+
+            try
+            {
+                var useObject = UseObject.GetPlayer(playerNum);
+                useObject?.EndSelectedItem(1);
+                var rodActionEndRan = TryEndCompletedFishingRodAction(playerNum, source, out var rodActionEndMethodName);
+                ForceUseObjectActionReady(useObject, playerNum, source);
+                var buttonDown = SafeMemberReadAsString(useObject, "buttonDown");
+                var actionToolDone = SafeMemberReadAsString(useObject, "actionToolDone");
+                _lastEndSelectedUseAtByPlayer[playerNum] = Time.realtimeSinceStartup;
+                _lastEndSelectedUseFinishAtByPlayer[playerNum] = finishAt;
+                DebugLog($"EASYFISHING_REMOVE_RECAST_DELAY_END_USE player={playerNum} source={source} finishAt={finishAt:0.000} rodActionEnd={rodActionEndRan} rodActionEndMethod={rodActionEndMethodName} buttonDown={buttonDown} actionToolDone={actionToolDone}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                DebugLog($"EASYFISHING_REMOVE_RECAST_DELAY_END_USE_FAILED player={playerNum} source={source}: {ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
+        }
+
+        static void ForceUseObjectActionReady(UseObject useObject, int playerNum, string source)
+        {
+            if (useObject == null)
+                return;
+            if (!IsRemoveRecastDelayEnabled())
+                return;
+            if (!(source == "completed-state" || source == "reward-seen" || source == "manual-recast-input" || source == "unlock-window"))
+                return;
+
+            var beforeButtonDown = SafeMemberReadAsString(useObject, "buttonDown");
+            var beforeActionToolDone = SafeMemberReadAsString(useObject, "actionToolDone");
+            var buttonChanged = false;
+            var actionToolDoneChanged = false;
+
+            try
+            {
+                var traverse = Traverse.Create(useObject);
+                var buttonField = traverse.Field("buttonDown");
+                if (buttonField != null)
+                {
+                    var value = buttonField.GetValue();
+                    if (value is int)
+                    {
+                        buttonField.SetValue(0);
+                        buttonChanged = true;
+                    }
+                    else if (value is bool)
+                    {
+                        buttonField.SetValue(false);
+                        buttonChanged = true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLog($"EASYFISHING_REMOVE_RECAST_DELAY_USEOBJECT_BUTTON_READY_FAILED player={playerNum} source={source}: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            try
+            {
+                var actionToolDoneField = Traverse.Create(useObject).Field("actionToolDone");
+                if (actionToolDoneField != null)
+                {
+                    actionToolDoneField.SetValue(true);
+                    actionToolDoneChanged = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLog($"EASYFISHING_REMOVE_RECAST_DELAY_USEOBJECT_ACTION_READY_FAILED player={playerNum} source={source}: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            var afterButtonDown = SafeMemberReadAsString(useObject, "buttonDown");
+            var afterActionToolDone = SafeMemberReadAsString(useObject, "actionToolDone");
+            Log.LogInfo($"EASYFISHING_REMOVE_RECAST_DELAY_USEOBJECT_READY player={playerNum} source={source} beforeButtonDown={beforeButtonDown} afterButtonDown={afterButtonDown} beforeActionToolDone={beforeActionToolDone} afterActionToolDone={afterActionToolDone} buttonChanged={buttonChanged} actionToolDoneChanged={actionToolDoneChanged}");
+        }
+
+        static bool TryEndCompletedFishingRodAction(int playerNum, string source, out string methodName)
+        {
+            methodName = "<none>";
+            if (!IsRemoveRecastDelayEnabled())
+                return false;
+            if (playerNum < MinSafePlayerNum || playerNum > MaxSafePlayerNum)
+                return false;
+
+            var rod = GetSelectedRodForPlayer(playerNum);
+            if (rod == null)
+            {
+                DebugLog($"EASYFISHING_REMOVE_RECAST_DELAY_ROD_ACTION_END_SKIPPED player={playerNum} source={source} reason=rod_unresolved");
+                return false;
+            }
+
+            var method = _rodActionEndMethod;
+            var fallback = false;
+            if (method == null)
+            {
+                method = ResolveMethod(typeof(Rod), "ActionEnd", new[] { typeof(int) });
+                _rodActionEndMethod = method;
+            }
+            if (method == null)
+            {
+                method = _rodActionEndFallbackMethod;
+                fallback = method != null;
+            }
+
+            if (method == null)
+            {
+                DebugLog($"EASYFISHING_REMOVE_RECAST_DELAY_ROD_ACTION_END_SKIPPED player={playerNum} source={source} reason=method_missing");
+                return false;
+            }
+
+            try
+            {
+                method.Invoke(rod, new object[] { playerNum });
+                methodName = method.Name;
+                DebugLog($"EASYFISHING_REMOVE_RECAST_DELAY_ROD_ACTION_END player={playerNum} source={source} method={method.Name} fallback={fallback}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                methodName = method.Name;
+                DebugLog($"EASYFISHING_REMOVE_RECAST_DELAY_ROD_ACTION_END_FAILED player={playerNum} source={source} method={method.Name}: {ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
+        }
+
+        static Transform ResolvePreservedResultParent(FishingHook hook)
+        {
+            try
+            {
+                if (_preservedFishResultRoot == null)
+                {
+                    _preservedFishResultRoot = new GameObject("EasyFishingPreservedResults");
+                    UnityEngine.Object.DontDestroyOnLoad(_preservedFishResultRoot);
+                }
+
+                return _preservedFishResultRoot.transform;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        static void MakePreservedResultNonBlocking(GameObject visual)
+        {
+            if (visual == null)
+                return;
+
+            foreach (var collider in visual.GetComponentsInChildren<Collider>(true))
+                collider.enabled = false;
+            foreach (var collider in visual.GetComponentsInChildren<Collider2D>(true))
+                collider.enabled = false;
+            foreach (var graphic in visual.GetComponentsInChildren<Graphic>(true))
+                graphic.raycastTarget = false;
+            foreach (var canvasGroup in visual.GetComponentsInChildren<CanvasGroup>(true))
+            {
+                canvasGroup.blocksRaycasts = false;
+                canvasGroup.interactable = false;
+            }
+            foreach (var selectable in visual.GetComponentsInChildren<Selectable>(true))
+                selectable.interactable = false;
+        }
+
+        static void ClearPreservedFishResultVisual(int playerNum, string source)
+        {
+            if (playerNum < 0 || playerNum >= _preservedFishResultVisualByPlayer.Length)
+                return;
+
+            var visual = _preservedFishResultVisualByPlayer[playerNum];
+            _preservedFishResultVisualByPlayer[playerNum] = null;
+            _preservedFishResultVisualUntilByPlayer[playerNum] = 0f;
+
+            if (visual == null)
+                return;
+
+            try
+            {
+                UnityEngine.Object.Destroy(visual);
+                DebugLog($"EASYFISHING_REMOVE_RECAST_DELAY_RESULT_SNAPSHOT_CLEARED player={playerNum} source={source}");
+            }
+            catch (Exception ex)
+            {
+                LogThrottledDiagnostic($"Failed clearing preserved fish result visual player={playerNum} source={source}: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        static bool TryPreserveFishResultVisualSnapshot(int playerNum, FishingHook hook, string source)
+        {
+            if (playerNum < 0 || playerNum >= _preservedFishResultVisualByPlayer.Length)
+                return false;
+            if (hook?.fishInfo == null || !hook.fishInfo.activeInHierarchy)
+                return false;
+            if (hook.fishIconInfo == null || hook.fishIconInfo.sprite == null)
+                return false;
+
+            try
+            {
+                ClearPreservedFishResultVisual(playerNum, $"replace:{source}");
+
+                var parent = ResolvePreservedResultParent(hook);
+                var clone = new GameObject(hook.fishInfo.name + PreservedFishResultVisualSuffix);
+                if (parent != null)
+                    clone.transform.SetParent(parent, false);
+                clone.transform.position = hook.fishIconInfo.transform.position;
+                clone.transform.rotation = hook.fishIconInfo.transform.rotation;
+                clone.transform.localScale = hook.fishIconInfo.transform.lossyScale;
+
+                var spriteRenderer = clone.AddComponent<SpriteRenderer>();
+                spriteRenderer.sprite = hook.fishIconInfo.sprite;
+                spriteRenderer.flipX = hook.fishIconInfo.flipX;
+                spriteRenderer.flipY = hook.fishIconInfo.flipY;
+                spriteRenderer.color = hook.fishIconInfo.color;
+                spriteRenderer.sortingLayerID = hook.fishIconInfo.sortingLayerID;
+                spriteRenderer.sortingOrder = hook.fishIconInfo.sortingOrder + 1;
+                MakePreservedResultNonBlocking(clone);
+
+                _preservedFishResultVisualByPlayer[playerNum] = clone;
+                _preservedFishResultVisualUntilByPlayer[playerNum] = Time.realtimeSinceStartup + FishResultDisplayMinTime;
+
+                Log.LogInfo($"EASYFISHING_REMOVE_RECAST_DELAY_RESULT_SNAPSHOT player={playerNum} source={source} mode=inert-icon parent={(parent != null ? parent.name : "<world>")}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogThrottledDiagnostic($"Failed preserving fish result visual snapshot player={playerNum} source={source}: {ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
+        }
+
+        static void PollPreservedFishResultVisuals()
+        {
+            var now = Time.realtimeSinceStartup;
+            for (var playerNum = 0; playerNum < _preservedFishResultVisualByPlayer.Length; playerNum++)
+            {
+                if (_preservedFishResultVisualByPlayer[playerNum] == null)
+                    continue;
+                if (_preservedFishResultVisualUntilByPlayer[playerNum] > 0f && now >= _preservedFishResultVisualUntilByPlayer[playerNum])
+                    ClearPreservedFishResultVisual(playerNum, "expired");
+            }
+        }
+
+        static void ArmRecastUnlockWindow(int playerNum, float finishAt)
+        {
+            if (playerNum < 0 || playerNum >= _recastUnlockWindowUntilByPlayer.Length)
+                return;
+            var until = Time.realtimeSinceStartup + RecastUnlockWindowDuration;
+            _recastUnlockWindowUntilByPlayer[playerNum] = until;
+            _recastUnlockWindowFinishAtByPlayer[playerNum] = finishAt;
+            DebugLog($"EASYFISHING_RECAST_UNLOCK_WINDOW_ARMED player={playerNum} until={until:0.000} finishAt={finishAt:0.000}");
+        }
+
+        static void PollRecastUnlockWindow(int playerNum, FishingController controller)
+        {
+            if (playerNum < 0 || playerNum >= _recastUnlockWindowUntilByPlayer.Length)
+                return;
+
+            var now = Time.realtimeSinceStartup;
+            var until = _recastUnlockWindowUntilByPlayer[playerNum];
+            var hasPending = playerNum < _pendingRecastByPlayer.Length && _pendingRecastByPlayer[playerNum];
+
+            if (until <= 0f && !hasPending)
+                return;
+            if (until > 0f && now > until && !hasPending)
+            {
+                _recastUnlockWindowUntilByPlayer[playerNum] = 0f;
+                return;
+            }
+
+            // If the game started a new fishing session, disarm immediately — do NOT interfere
+            if (controller != null && controller.fishing)
+            {
+                DebugLog($"EASYFISHING_RECAST_UNLOCK_WINDOW_DISARMED player={playerNum} reason=new_session_detected");
+                _recastUnlockWindowUntilByPlayer[playerNum] = 0f;
+                if (playerNum < _pendingRecastByPlayer.Length)
+                    _pendingRecastByPlayer[playerNum] = false;
+                return;
+            }
+
+            // Only clear busy/UseObject state — do NOT touch controller.fishing here
+            // (forcing it false caused instant reel-back on new casts)
+            try
+            {
+                var player = PlayerController.GetPlayer(playerNum);
+                if (player != null)
+                    player.NILLCIMMKJE = false;
+            }
+            catch { }
+
+            var useObject = UseObject.GetPlayer(playerNum);
+            if (useObject != null)
+                ForceUseObjectActionReady(useObject, playerNum, "unlock-window");
+
+            // Detect raw recast input — use GetMouseButton(0) too to catch held clicks
+            var mouseDown = Input.GetMouseButtonDown(0) || (hasPending && Input.GetMouseButton(0));
+            var rodSelected = GetSelectedRodForPlayer(playerNum) != null;
+            var mainUiOpen = false;
+            try { mainUiOpen = SafeMainUiOpen(playerNum); } catch { }
+
+            // Set pending if input seen
+            if ((mouseDown || hasPending) && rodSelected)
+            {
+                if (playerNum < _pendingRecastByPlayer.Length)
+                    _pendingRecastByPlayer[playerNum] = true;
+                hasPending = true;
+            }
+
+            var diagKey = playerNum;
+            var shouldDiag = now >= _nextRecastUnlockDiagAtByPlayer[diagKey];
+            if (shouldDiag)
+            {
+                _nextRecastUnlockDiagAtByPlayer[diagKey] = now + 0.5f;
+                bool fishingUiOpen = false;
+                bool fishingUiContent = false;
+                bool playerBusy = false;
+                int buttonDown = -1;
+                bool actionToolDone = false;
+                try
+                {
+                    var ui = FishingUI.Get(playerNum);
+                    if (ui != null)
+                    {
+                        fishingUiOpen = ui.IsOpen();
+                        fishingUiContent = ui.content != null && ui.content.activeInHierarchy;
+                    }
+                } catch { }
+                try { playerBusy = PlayerController.GetPlayer(playerNum)?.NILLCIMMKJE ?? false; } catch { }
+                try
+                {
+                    var uo = UseObject.GetPlayer(playerNum);
+                    if (uo != null)
+                    {
+                        buttonDown = uo.buttonDown;
+                        actionToolDone = uo.actionToolDone;
+                    }
+                } catch { }
+                DebugLog($"EASYFISHING_RECAST_UNLOCK_WINDOW_POLL player={playerNum} remaining={(until > 0f ? (until - now) : 0f):0.000} mouseDown={mouseDown} rodSelected={rodSelected} pending={hasPending} " +
+                    $"mainUiOpen={mainUiOpen} fishingUiOpen={fishingUiOpen} fishingUiContent={fishingUiContent} " +
+                    $"playerBusy={playerBusy} buttonDown={buttonDown} actionToolDone={actionToolDone} controllerFishing={controller?.fishing}");
+            }
+
+            if (!hasPending || !rodSelected)
+                return;
+
+            // Defer cast while any UI is open — close it if we have pending recast input
+            if (mainUiOpen)
+            {
+                if (until > 0f && until - now < 0.6f)
+                    _recastUnlockWindowUntilByPlayer[playerNum] = now + 0.6f;
+
+                // Force-close the reward/result UI so the cast can proceed
+                try
+                {
+                    MainUI.CloseAllUIWindows(false);
+                    DebugLog($"EASYFISHING_RECAST_UNLOCK_WINDOW_CLOSE_MAIN_UI player={playerNum}");
+                }
+                catch (Exception ex)
+                {
+                    DebugLog($"EASYFISHING_RECAST_UNLOCK_WINDOW_CLOSE_MAIN_UI_FAILED player={playerNum}: {ex.GetType().Name}: {ex.Message}");
+                }
+                return;
+            }
+
+            // UI closed and pending input — attempt cast
+            DebugLog($"EASYFISHING_RECAST_UNLOCK_WINDOW_RAW_INPUT player={playerNum} attempting UseSelectedItem bypass");
+
+            try
+            {
+                var result = UseObject.GetPlayer(playerNum)?.UseSelectedItem(true, true, 1) ?? false;
+                DebugLog($"EASYFISHING_RECAST_UNLOCK_WINDOW_BYPASS player={playerNum} UseSelectedItem result={result}");
+                if (result)
+                {
+                    _recastUnlockWindowUntilByPlayer[playerNum] = 0f;
+                    if (playerNum < _pendingRecastByPlayer.Length)
+                        _pendingRecastByPlayer[playerNum] = false;
+                    return;
+                }
+
+                // Fallback: ActionSelectedItem
+                var actionBar = Traverse.Create(PlayerInventory.GetPlayer(playerNum))?.Field("actionBarInventory")?.GetValue();
+                if (actionBar != null)
+                {
+                    var actionBarMethod = ResolveMethod(actionBar.GetType(), "ActionSelectedItem",
+                        new[] { typeof(int), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(int) });
+                    if (actionBarMethod != null)
+                    {
+                        var abResult = actionBarMethod.Invoke(actionBar, new object[] { playerNum, true, true, false, false, 1 });
+                        DebugLog($"EASYFISHING_RECAST_UNLOCK_WINDOW_BYPASS_AB player={playerNum} ActionSelectedItem result={abResult}");
+                        if (abResult is bool abBool && abBool)
+                        {
+                            _recastUnlockWindowUntilByPlayer[playerNum] = 0f;
+                            if (playerNum < _pendingRecastByPlayer.Length)
+                                _pendingRecastByPlayer[playerNum] = false;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLog($"EASYFISHING_RECAST_UNLOCK_WINDOW_BYPASS_FAILED player={playerNum}: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
         static void PollRemoveRecastDelay()
         {
             if (_lastRemoveRecastDelayPollFrame == Time.frameCount)
@@ -3114,6 +3939,7 @@ namespace TravellersRestFishingTweaks
 
             _lastRemoveRecastDelayPollFrame = Time.frameCount;
             var now = Time.realtimeSinceStartup;
+            PollPreservedFishResultVisuals();
 
             for (var playerNum = MinSafePlayerNum; playerNum <= MaxSafePlayerNum; playerNum++)
             {
@@ -3123,6 +3949,12 @@ namespace TravellersRestFishingTweaks
                 var controller = GetFishingControllerSafe(playerNum);
                 if (controller == null)
                     continue;
+
+                ApplyRemoveRecastDelaySettings(controller, "poll");
+
+                // Poll the post-cleanup unlock window (continuous busy-clear + raw input bypass)
+                if (IsRemoveRecastDelayEnabled())
+                    PollRecastUnlockWindow(playerNum, controller);
 
                 if (playerNum >= 0 && playerNum < _removeRecastDelayCleanupAtByPlayer.Length && _removeRecastDelayCleanupAtByPlayer[playerNum] > 0f && now >= _removeRecastDelayCleanupAtByPlayer[playerNum])
                 {
@@ -3142,9 +3974,6 @@ namespace TravellersRestFishingTweaks
             if (controller == null)
                 return;
 
-            if (source != "reward-seen" && (controller.fishing || IsControllerFishingCameraActive(controller)))
-                return;
-
             try
             {
                 var hook = Traverse.Create(controller).Field("fishingHook")?.GetValue() as FishingHook;
@@ -3153,13 +3982,32 @@ namespace TravellersRestFishingTweaks
 
                 var fishInfoActive = hook.fishInfo != null && hook.fishInfo.activeInHierarchy;
                 var hookActive = hook.gameObject != null && hook.gameObject.activeInHierarchy;
-                if (!fishInfoActive && !hookActive)
+
+                if (source == "completed-state" && !fishInfoActive && !hookActive)
                     return;
 
-                if (hook.fishInfo != null)
-                    hook.fishInfo.SetActive(false);
-                if (hook.gameObject != null)
-                    hook.gameObject.SetActive(false);
+                EnsureObservedCompletedFishingSession(playerNum, source, fishInfoActive, hookActive, controller);
+
+                var isTrustedGameplayCleanupSource = IsRemoveRecastGameplayCleanupSource(source);
+                var isManualRecastInput = source == "manual-recast-input";
+                var lastFinishAt = playerNum >= 0 && playerNum < _lastFinishFishingAtByPlayer.Length ? _lastFinishFishingAtByPlayer[playerNum] : 0f;
+                var lastStartAt = playerNum >= 0 && playerNum < _lastFishingStartAtByPlayer.Length ? _lastFishingStartAtByPlayer[playerNum] : 0f;
+                var finishedCurrentSession = lastFinishAt > 0f && lastFinishAt >= lastStartAt;
+                var recentFinish = finishedCurrentSession && Time.realtimeSinceStartup - lastFinishAt < FishResultDisplayMinTime;
+                var manualCompletedCleanup = isManualRecastInput && recentFinish && (fishInfoActive || hookActive || HasFishingUiFish(playerNum));
+                var isGameplayCleanupSource = isTrustedGameplayCleanupSource || manualCompletedCleanup;
+                var endUseAttempted = false;
+                var endUseRan = false;
+
+                if (!isGameplayCleanupSource && (controller.fishing || IsControllerFishingCameraActive(controller)))
+                    return;
+
+                if (!fishInfoActive && !hookActive && !isGameplayCleanupSource)
+                    return;
+
+                var preserveResultVisual = isGameplayCleanupSource && fishInfoActive && finishedCurrentSession && recentFinish && !IsRemoveRecastDelayEnabled();
+
+                var preservedSnapshot = preserveResultVisual && TryPreserveFishResultVisualSnapshot(playerNum, hook, source);
 
                 try
                 {
@@ -3171,8 +4019,14 @@ namespace TravellersRestFishingTweaks
                 {
                 }
 
-                if (source == "reward-seen" || source == "completed-state")
+                if (isGameplayCleanupSource)
                 {
+                    if (finishedCurrentSession && recentFinish)
+                    {
+                        endUseAttempted = true;
+                        endUseRan = TryEndCompletedFishingSelectedUse(playerNum, source, lastFinishAt);
+                    }
+
                     controller.fishing = false;
                     ClearBiteList(controller, $"RemoveRecastDelay:{source}");
                     try
@@ -3184,7 +4038,55 @@ namespace TravellersRestFishingTweaks
                     }
                 }
 
-                Log.LogInfo($"EASYFISHING_REMOVE_RECAST_DELAY_CLEARED player={playerNum} source={source} hookWasActive={hookActive} fishInfoWasActive={fishInfoActive}");
+                if (source == "completed-state" && (fishInfoActive || hookActive))
+                {
+                    var now = Time.realtimeSinceStartup;
+                    if (playerNum >= 0 && playerNum < _nextCompletedStateHeartbeatAtByPlayer.Length && now >= _nextCompletedStateHeartbeatAtByPlayer[playerNum])
+                    {
+                        _nextCompletedStateHeartbeatAtByPlayer[playerNum] = now + 0.75f;
+                        var endUseState = endUseAttempted ? (endUseRan ? "ran" : "attempted_not_run") : "skipped_not_recent_or_not_finished";
+                        DebugLog(
+                            $"EASYFISHING_REMOVE_RECAST_DELAY_HEARTBEAT player={playerNum} source={source} " +
+                            $"hookActive={hookActive} fishInfoActive={fishInfoActive} lastFinishAt={lastFinishAt:0.000} lastStartAt={lastStartAt:0.000} " +
+                            $"finishedCurrentSession={finishedCurrentSession} recentFinish={recentFinish} endUse={endUseState}");
+                    }
+                }
+
+                if (fishInfoActive || hookActive)
+                {
+                    if (hook.fishInfo != null)
+                        hook.fishInfo.SetActive(false);
+                    if (hook.gameObject != null)
+                        hook.gameObject.SetActive(false);
+
+                    if (isGameplayCleanupSource)
+                        CloseFishingUiForRemoveRecastDelay(playerNum, source);
+
+                    if (preservedSnapshot)
+                    {
+                        Log.LogInfo($"EASYFISHING_REMOVE_RECAST_DELAY_DETACHED_RESULT_CLEARED player={playerNum} source={source} hookWasActive={hookActive} fishInfoWasActive={fishInfoActive}");
+                    }
+                    else
+                    {
+                        Log.LogInfo($"EASYFISHING_REMOVE_RECAST_DELAY_CLEARED player={playerNum} source={source} hookWasActive={hookActive} fishInfoWasActive={fishInfoActive} preserveRequested={preserveResultVisual}");
+                    }
+
+                    // Arm the post-cleanup unlock window so we can continuously re-clear busy state
+                    // and intercept raw recast input during the native result-display lock period
+                    if (IsRemoveRecastDelayEnabled() && isGameplayCleanupSource)
+                        ArmRecastUnlockWindow(playerNum, lastFinishAt);
+                }
+                else if (isGameplayCleanupSource)
+                {
+                    var key = $"{playerNum}:{source}";
+                    var now = Time.realtimeSinceStartup;
+                    if (!_nextStateOnlyCleanupDiagAtByPlayerSource.TryGetValue(key, out var nextAt) || now >= nextAt)
+                    {
+                        _nextStateOnlyCleanupDiagAtByPlayerSource[key] = now + 2f;
+                        DebugLog($"EASYFISHING_REMOVE_RECAST_DELAY_STATE_ONLY_CLEARED player={playerNum} source={source} hookWasActive={hookActive} fishInfoWasActive={fishInfoActive}");
+                    }
+                }
+
                 if (playerNum >= 0 && playerNum < _lastRemoveRecastCleanupAtByPlayer.Length)
                     _lastRemoveRecastCleanupAtByPlayer[playerNum] = Time.realtimeSinceStartup;
             }
@@ -3604,7 +4506,7 @@ namespace TravellersRestFishingTweaks
                     {
                         if (hook.gameObject != null && hook.gameObject.activeInHierarchy)
                             return true;
-                        if (hook.enabled)
+                        if (hook.enabled && hook.gameObject != null && hook.gameObject.activeInHierarchy)
                             return true;
                     }
                 }
